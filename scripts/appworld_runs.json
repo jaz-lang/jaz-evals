@@ -1,0 +1,37 @@
+{
+  "_README": [
+    "Which run directories each AppWorld arm is built from.",
+    "",
+    "Both `scripts/build_appworld_table.py` and `scripts/plot_appworld_curves.py` read this file, so",
+    "the two artifacts are always built from the same runs -- they used to carry separate hardcoded",
+    "copies of these globs, which could drift apart silently.",
+    "",
+    "TO REPRODUCE WITH YOUR OWN RUNS: copy this file, replace each glob with your run directories,",
+    "and pass --runs-manifest yours.json to either script. Globs are resolved against --runs-root",
+    "(default: the repo root), and may name any directory under it -- they are not confined to",
+    "`runs/`. They must be RELATIVE: Path.glob refuses an absolute pattern, so put the prefix in",
+    "--runs-root instead. Pass --out (table) / --out-dir (curves) as well, or the artifacts built",
+    "from your runs overwrite the committed ones.",
+    "",
+    "Each glob must match one or more attempt-bearing run directories. The official ReAct baseline",
+    "has no entry here and needs none: its artifacts live outside the repo, under AppWorld's own data",
+    "root, so the scripts give it an empty manifest key and read it from --official-root instead."
+  ],
+  "arms": {
+    "codeact": [
+      "runs/appworld/jaz_per_task/20260828T122739Z-aw417-codeact-full-rep-*/"
+    ],
+    "codeact_subagents": [
+      "runs/appworld/jaz/20260829T164905Z-aw417-jaz-codeact-subagents-rep-*/",
+      "runs/appworld/jaz/20260901T225419Z-aw417-jaz-codeact-subagents-rep-[456]/"
+    ],
+    "ace_on_codeact": [
+      "runs/appworld/ace/20260829T150354Z-aw417-ace-codeact-freeze42-dedup07-rep-*/",
+      "runs/appworld/ace/20260903T015913Z-aw417-ace-codeact-freeze42-dedup07-rep-[456]/"
+    ],
+    "jaz_invoke": [
+      "runs/appworld/jaz/20260829T033437Z-aw417-jaz-meta-full-rep-*/",
+      "runs/appworld/jaz/20260901T225418Z-aw417-jaz-meta-full-rep-[456]/"
+    ]
+  }
+}

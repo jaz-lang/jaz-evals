@@ -1,0 +1,8 @@
+[submodule "third_party/ELL-StuLife"]
+	path = third_party/ELL-StuLife
+	url = https://github.com/jaz-lang/ELL-StuLife.git
+	branch = jaz
+[submodule "third_party/appworld"]
+	path = third_party/appworld
+	url = https://github.com/jaz-lang/appworld.git
+	branch = jaz

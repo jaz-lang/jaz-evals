@@ -1,0 +1,144 @@
+% StuLife (full episode, 1284 tasks of which 939 are scored) results.
+%
+% BENCHMARK ATTRIBUTION. StuLife is the benchmark of "Building a Self-Evolving Agent via
+% Experience-Driven Lifelong Learning: A Framework and Benchmark" (arXiv:2508.19005), and its authors
+% ask that work releasing StuLife-derived material cite them. Emitted here rather than left to the
+% paper, because this file is itself a released artifact and the obligation travels with it. The
+% table header also carries a rendered \citep{stulife2025}, since a % comment reaches no reader of
+% the compiled paper -- SO THE BIBLIOGRAPHY MUST DEFINE THAT KEY. An unmatched key renders
+% "StuLife [?]", which fails the condition quietly, in a generated file nobody hand-reads.
+%
+% LaTeX requirements: booktabs (\toprule/\midrule/\cmidrule/\bottomrule), multirow, natbib or
+% biblatex (\citep), listings (\lstinline), a \checkmark and \xmark source (amssymb + pifont, or
+% bbding), and the paper's own \oursimpl macro. Bibliography keys used: stulife2025,
+% wang2024codeact, roucher2025smolagents, packer2023memgpt.
+%
+% GENERATED FILE -- do not hand-edit. Rebuild with:
+%     uv run python scripts/build_stulife_table.py
+% and verify it is current with `--check`. Every number below is computed from run artifacts by
+% that script.
+%
+% Two tables: the aggregate (mean +/- SEM over reps) and the per-rep breakdown. In the aggregate
+% table, bold marks the best value in a column and underline the second-best, computed across all
+% arms including baselines; per-rep rows carry neither (a single rep is not a "best" result). The
+% `*` marker in the aggregate table's "prompt-only?" column header references a note that lives in
+% the paper, not in this file.
+%
+% Sources, all globs relative to --runs-root, which for this build was:
+%   the repo root (the default)
+%   CodeAct (per task)             runs/stulife/jaz_per_task/20260829T193822Z-per-task-codeact-full-1284-x3/
+%   CodeAct+subagents (smolagents) runs/stulife/smolagents/20260905T215637Z-smolagents-full-1284-subagent-rename-x3/
+%   CodeAct+subagents (ours)       runs/stulife/jaz/20260830T123523Z-codeact-subagents-post-stdout-fix-1284-x3/
+%   Letta                          runs/stulife/letta/20260826T174343Z-letta-full-post-review-3x/
+%   invoke                         runs/stulife/jaz/20260830T123517Z-full-jaz-post-stdout-fix-1284-x3/
+%
+% Some directory names above carry a same-day build label, e.g. "-post-stdout-fix-" or
+% "-subagent-rename-": a one-time note from whoever launched the run about which code change was
+% topical that day, not a caveat about the run itself. Like the paths above, none of this survives
+% a fresh clone -- only the generator does.
+%
+% A REP IS AN ATTEMPT. Each arm here is one run directory launched with `--attempts 3`, so its
+% three reps are three attempts of that run -- unlike the AppWorld table, where a rep is a separate
+% run directory. The per-rep table's `rep` column is the attempt directory.
+%
+% How each column is computed, all from attempt-*/results.json:
+%   Pass       extra.pass_rate -- the fraction of SCORED tasks fully passed. StuLife's 1284
+%              tasks include 345 trigger rows, which carry no score, so every rate is
+%              out of 939.
+%   Score      extra.avg_score -- mean partial credit over the same 939.
+%   far recall the same two quantities restricted to tasks whose answer was taught far enough back
+%              to have left the context window (extra.*_far_recall, n=207 here).
+%              This is the subset the long-horizon claim rests on.
+%   Cost       usage.cost_usd -- the whole attempt.
+%
+% +/- is the standard error of the mean over reps, NOT a standard deviation: it describes the
+% precision of the reported mean, which is what a reader comparing two arms needs.
+%
+% PROVENANCE IS DERIVED, NOT ASSERTED -- every row below is read from the run directory
+% and its `provenance.json`, so a claim here cannot drift from the runs the numbers came
+% from. A `?` means the run recorded no provenance.
+%
+% 'jaz commit' is the commit of the jaz submodule (this project's agent framework dependency,
+% installed editable) that rep actually ran -- see src/jaz_evals/provenance.py for why the
+% commit, not the version pin, is what is recorded. 'tree' is that same checkout's state at
+% launch: 'dirty' means it had uncommitted tracked changes and/or untracked files. A tracked
+% diff, if there was one, was written to a `jaz.diff` alongside that run's `provenance.json`
+% (never the untracked files themselves, and no file at all when the tree was dirty only from
+% untracked ones) -- not reproduced in this table.
+%
+%   arm                             rep        jaz commit   tree    run
+%   CodeAct (per task)              attempt-0  893715d00    dirty   20260829T193822Z-per-task-codeact-full-1284-x3
+%                                   attempt-1  893715d00    dirty   20260829T193822Z-per-task-codeact-full-1284-x3
+%                                   attempt-2  893715d00    dirty   20260829T193822Z-per-task-codeact-full-1284-x3
+%   CodeAct+subagents (smolagents)  attempt-0  bb26be957    clean   20260905T215637Z-smolagents-full-1284-subagent-rename-x3
+%                                   attempt-1  bb26be957    clean   20260905T215637Z-smolagents-full-1284-subagent-rename-x3
+%                                   attempt-2  bb26be957    clean   20260905T215637Z-smolagents-full-1284-subagent-rename-x3
+%   CodeAct+subagents (ours)        attempt-0  893715d00    dirty   20260830T123523Z-codeact-subagents-post-stdout-fix-1284-x3
+%                                   attempt-1  893715d00    dirty   20260830T123523Z-codeact-subagents-post-stdout-fix-1284-x3
+%                                   attempt-2  893715d00    dirty   20260830T123523Z-codeact-subagents-post-stdout-fix-1284-x3
+%   Letta                           attempt-0  492ed01dc    dirty   20260826T174343Z-letta-full-post-review-3x
+%                                   attempt-1  492ed01dc    dirty   20260826T174343Z-letta-full-post-review-3x
+%                                   attempt-2  492ed01dc    dirty   20260826T174343Z-letta-full-post-review-3x
+%   invoke                          attempt-0  893715d00    dirty   20260830T123517Z-full-jaz-post-stdout-fix-1284-x3
+%                                   attempt-1  893715d00    dirty   20260830T123517Z-full-jaz-post-stdout-fix-1284-x3
+%                                   attempt-2  893715d00    dirty   20260830T123517Z-full-jaz-post-stdout-fix-1284-x3
+
+% -------------------------------------------------------------------------
+% Aggregate: mean +/- SEM over reps.
+% -------------------------------------------------------------------------
+\begin{tabular}{rcccccc}
+\toprule
+ & & \multicolumn{2}{c}{\textsc{StuLife}~\citep{stulife2025} (all)}
+ & \multicolumn{2}{c}{\textsc{StuLife} (far recall)} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6}
+& \smash{\shortstack{prompt-\\only?\,*}} & Pass (\%) & Score (\%) & Pass (\%) & Score (\%) & Cost (\$) \\
+\midrule
+CodeAct\textsubscript{\oursimpl{}} \citep{wang2024codeact} \scriptsize{(per task)} & \checkmark & 52.5 $\pm$ 0.3 & 59.2 $\pm$ 0.1 & 24.8 $\pm$ 0.6 & 25.8 $\pm$ 0.5 & \textbf{4.4} $\pm$ 0.1 \\
+CodeAct+subagents\textsubscript{\citep{roucher2025smolagents}} & \checkmark & 30.2 $\pm$ 4.8 & 33.6 $\pm$ 5.2 & 20.6 $\pm$ 0.6 & 22.0 $\pm$ 0.9 & \underline{9.4} $\pm$ 1.4 \\
+CodeAct+subagents\textsubscript{\oursimpl{}} & \checkmark & 60.0 $\pm$ 1.1 & 68.1 $\pm$ 1.0 & 32.0 $\pm$ 2.3 & 33.9 $\pm$ 2.0 & 13.1 $\pm$ 0.9 \\
+Letta Agent \citep{packer2023memgpt} & \xmark & \underline{70.9} $\pm$ 0.5 & \underline{81.0} $\pm$ 0.5 & \underline{61.8} $\pm$ 2.3 & \underline{67.0} $\pm$ 2.4 & 42.1 $\pm$ 1.6 \\
+\midrule
+\oursimpl{} \lstinline|invoke| & \checkmark & \textbf{72.6} $\pm$ 0.1 & \textbf{81.6} $\pm$ 0.1 & \textbf{69.9} $\pm$ 1.8 & \textbf{73.6} $\pm$ 1.5 & 18.3 $\pm$ 0.3 \\
+\bottomrule
+\end{tabular}
+
+% -------------------------------------------------------------------------
+% Per-rep breakdown.
+% -------------------------------------------------------------------------
+\begin{tabular}{rlccccc}
+\toprule
+ & & \multicolumn{5}{c}{StuLife (1284 tasks, 939 scored)} \\
+\cmidrule(lr){3-7}
+ & rep & Pass (\%) & Score (\%) & Pass (\%) & Score (\%) & Cost (\$) \\
+\midrule
+\multirow{3}{*}{CodeAct\textsubscript{\oursimpl{}} \citep{wang2024codeact} \scriptsize{(per task)}} & 1 & 52.3 & 59.2 & 25.1 & 26.1 & 4.6 \\
+ & 2 & 52.2 & 58.9 & 25.6 & 26.5 & 4.2 \\
+ & 3 & 53.0 & 59.4 & 23.7 & 24.7 & 4.3 \\
+\cmidrule(lr){2-7}
+ & mean & 52.5$^{\pm0.3}$ & 59.2$^{\pm0.1}$ & 24.8$^{\pm0.6}$ & 25.8$^{\pm0.5}$ & 4.4$^{\pm0.1}$ \\
+\midrule
+\multirow{3}{*}{CodeAct+subagents\textsubscript{\citep{roucher2025smolagents}}} & 1 & 29.5 & 31.8 & 20.3 & 22.3 & 11.0 \\
+ & 2 & 22.2 & 25.6 & 19.8 & 20.4 & 6.6 \\
+ & 3 & 38.9 & 43.5 & 21.7 & 23.4 & 10.6 \\
+\cmidrule(lr){2-7}
+ & mean & 30.2$^{\pm4.8}$ & 33.6$^{\pm5.2}$ & 20.6$^{\pm0.6}$ & 22.0$^{\pm0.9}$ & 9.4$^{\pm1.4}$ \\
+\midrule
+\multirow{3}{*}{CodeAct+subagents\textsubscript{\oursimpl{}}} & 1 & 62.2 & 70.0 & 36.2 & 37.8 & 13.8 \\
+ & 2 & 59.4 & 67.7 & 28.5 & 31.0 & 11.3 \\
+ & 3 & 58.5 & 66.6 & 31.4 & 32.9 & 14.3 \\
+\cmidrule(lr){2-7}
+ & mean & 60.0$^{\pm1.1}$ & 68.1$^{\pm1.0}$ & 32.0$^{\pm2.3}$ & 33.9$^{\pm2.0}$ & 13.1$^{\pm0.9}$ \\
+\midrule
+\multirow{3}{*}{Letta Agent \citep{packer2023memgpt}} & 1 & 71.2 & 81.6 & 62.8 & 67.7 & 42.9 \\
+ & 2 & 71.6 & 81.4 & 65.2 & 70.7 & 38.9 \\
+ & 3 & 70.0 & 80.0 & 57.5 & 62.5 & 44.4 \\
+\cmidrule(lr){2-7}
+ & mean & 70.9$^{\pm0.5}$ & 81.0$^{\pm0.5}$ & 61.8$^{\pm2.3}$ & 67.0$^{\pm2.4}$ & 42.1$^{\pm1.6}$ \\
+\midrule
+\multirow{3}{*}{\oursimpl{} \lstinline|invoke|} & 1 & 72.6 & 81.6 & 70.0 & 73.7 & 18.4 \\
+ & 2 & 72.4 & 81.5 & 72.9 & 76.2 & 17.8 \\
+ & 3 & 72.6 & 81.7 & 66.7 & 71.0 & 18.9 \\
+\cmidrule(lr){2-7}
+ & mean & 72.6$^{\pm0.1}$ & 81.6$^{\pm0.1}$ & 69.9$^{\pm1.8}$ & 73.6$^{\pm1.5}$ & 18.3$^{\pm0.3}$ \\
+\bottomrule
+\end{tabular}

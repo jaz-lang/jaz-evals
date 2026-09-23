@@ -1,0 +1,229 @@
+% AppWorld (test_challenge, 417 tasks, seed 42) results.
+%
+% GENERATED FILE -- do not hand-edit. Rebuild with:
+%     uv run python scripts/build_appworld_table.py
+% and verify it is current with `--check`. Every number below is computed from run artifacts by that
+% script (see the comment below this file's module docstring for why a generator exists at all).
+%
+% Two tables: the aggregate (mean +/- SEM over reps) and the per-rep breakdown with mean and median
+% summary rows. In the aggregate table, bold marks the best value in a column and underline the
+% second-best, computed across all arms including baselines (per-rep rows carry neither -- see the
+% comment above that table).
+%
+% An arm label's subscript is the implementation it was run under: AppWorld for the published
+% baseline, \oursimpl{} for every arm this repo ran. "(per task)" marks an arm that starts each task
+% fresh; the three unmarked ones carry what they learn from one task to the next (CodeAct + subagents,
+% ACE on CodeAct, JAZ invoke -- Arm.self_improving=True), and are the ones with median rows below.
+%
+% Sources, all globs relative to --runs-root, which for this build was:
+%   /scratch/zli11010/jaz-evals-internal-1
+%   CodeAct              runs/appworld/jaz_per_task/20260828T122739Z-aw417-codeact-full-rep-*/
+%   CodeAct + subagents  runs/appworld/jaz/20260829T164905Z-aw417-jaz-codeact-subagents-rep-*/
+%                        runs/appworld/jaz/20260901T225419Z-aw417-jaz-codeact-subagents-rep-[456]/
+%   ACE on CodeAct       runs/appworld/ace/20260829T150354Z-aw417-ace-codeact-freeze42-dedup07-rep-*/
+%                        runs/appworld/ace/20260903T015913Z-aw417-ace-codeact-freeze42-dedup07-rep-[456]/
+%   JAZ invoke           runs/appworld/jaz/20260829T033437Z-aw417-jaz-meta-full-rep-*/
+%                        runs/appworld/jaz/20260901T225418Z-aw417-jaz-meta-full-rep-[456]/
+%   official baseline    NOT in this repo -- AppWorld's own experiment outputs under its DATA root.
+%                        Point --official-root at yours (and --official-logs at its per-rep run logs,
+%                        which carry the cost); absent, that row falls back to recorded constants and
+%                        the provenance block below says so. `runs/` is gitignored, so NONE of the
+%                        paths above survive a fresh clone either; they name the machine this was
+%                        built on, and the generator is what makes the table reproducible from them.
+%
+% How each column is computed:
+%   TGC       task goal completion: 100 * successes / 417, from the `success` field of each row in
+%             attempt-0/task_results.jsonl (AppWorld's own per-task pass/fail).
+%   SGC       scenario goal completion: a scenario counts only if ALL its variants passed
+%             (139 scenarios x 3 variants). Quantized to 100/139 = 0.72 points, so exact ties recur.
+%   Cost      results.json usage.cost_usd -- the whole run.
+%   Meta $    the improver's own spend. NOT the same source in every arm, deliberately:
+%               JAZ / CodeAct+subagents -- attempt-0/agent.atif.json, the ROOT trajectory's
+%                                          final_metrics.total_cost_usd. A nested invoke's cost lives
+%                                          in its own subagent_trajectories entry, not the parent's
+%                                          total, so that field is exactly root-vs-subagents. The meta
+%                                          IS the root on these arms.
+%               ACE                     -- summed `cost` in attempt-0/ace/calls.jsonl, i.e. the
+%                                          reflector/curator/dedup calls. ACE has no root agent.
+%               CodeAct / official      -- none; nothing carries between tasks.
+%             Read from ATIF, never from agent.trace/overview.md. The overview is a human-readable
+%             RENDER; regexing `cost $X` out of it would make this column a function of a display
+%             format nobody promises to keep stable -- measuring the file format rather than the run.
+%             The two agree to under $0.0005 on all twelve runs across the two ATIF-sourced 6-rep
+%             arms (JAZ invoke, CodeAct+subagents), so this sources the same numbers from the
+%             canonical record.
+%   Solver $  Cost - Meta $.
+%   mean      superscript is the SEM over that arm's reps (sd/sqrt(n)).
+%   median -- sub/superscript are the 2nd and 5th order statistics, x_(2) and x_(5). For n=6 that
+%             is a distribution-free CI for the POPULATION MEDIAN with EXACT coverage 78.13%
+%             (it inverts the sign test: 1 - 2*P(Bin(6,1/2) <= 1) = 1 - 2*(7/64) = 50/64, depending
+%             only on n, not on the distribution). Deliberately not 95%: at n=6 the only other
+%             order-statistic interval is [x_(1), x_(6)] = the full range, at 96.88%. The first n
+%             admitting a k=2 interval narrower than the range and still >=90% is n=8 (92.97%);
+%             n=9 is the first at >=95% (96.09%).
+%             Do NOT substitute a bootstrap here. At n=6 the percentile bootstrap on the mean covers
+%             ~86% when it claims 95% (measured: 3000 simulated 6-rep experiments x 1000 resamples,
+%             normal population; ~88% under a uniform one), because the empirical distribution is a
+%             poor stand-in for the population at that n. The order-statistic coverage above is
+%             exact by construction.
+%             Median rows are emitted only for the three self-improving arms, which have n=6; the two
+%             n=3 baselines admit no informative order-statistic interval at all.
+%
+% Rounding: one decimal everywhere, round-half-up. The precision is set by the official row, which
+% cannot go finer -- appworld's evaluator rounds AT COMPUTATION (`percentage_average(..., round_to=1)`,
+% third_party/appworld/src/appworld/evaluator.py:349-358; upstream code, not a fork patch), so the
+% value stored in evaluations/test_challenge.json is already 46.8. Its `individual` map does permit
+% recomputing TGC/SGC at full precision, and this generator does exactly that when the artifacts are
+% present -- but the published row is matched to the harness's own precision. Our arms are matched to
+% it for consistency; at 417 tasks one task is 0.24 points, so nothing material is lost.
+%
+% PROVENANCE (derived from each run's provenance.json by scripts/build_appworld_table.py --
+% do not edit these by hand; they are as machine-checked as the numbers).
+%
+%   'key' is an opaque per-table label (key A, key B, ...), not the credential or even its
+%   fingerprint. Two reps LABELLED share a label iff they billed the same OPENAI_API_KEY; a rep
+%   shown as '?' recorded no key at all, and two of those are not known to share anything.
+%   'jaz commit'
+%   is the commit of the jaz submodule (this project's agent framework dependency, installed
+%   editable) that rep actually ran; see src/jaz_evals/provenance.py for why the commit, not
+%   the version pin, is what is recorded.
+%
+%   arm                      per-rep API key label / resolved-config hash / jaz commit
+%   CodeAct                  keys: key B, key B, key B
+%                            config: constant 83969317c546747e
+%                            jaz:    893715d00
+%   CodeAct + subagents      keys: key A, key A, key A, key B, key B, key B
+%                            config: constant cd206f45a6b6e5fd
+%                            jaz:    893715d00 cff8d3f62
+%   ACE on CodeAct           keys: key B, key B, key B, key A, key A, key A
+%                            config: constant 63872f2f7c548232
+%                            jaz:    893715d00 cff8d3f62
+%   JAZ invoke               keys: key A, key A, key A, key A, key A, key A
+%                            config: constant f4bf875f29ab9933
+%                            jaz:    893715d00 cff8d3f62
+%
+% What those rows mean, and the two confounders they expose:
+%   - API KEY is NOT split the same way across arms. Nothing about which key bills a request
+%     should affect a measurement, but the triples are not identically-provisioned draws and
+%     the split is not the tidy one it would be easy to assume:
+%       CodeAct ran all 3 reps on key B
+%       CodeAct + subagents split them: reps 1-3 on key A, reps 4-6 on key B
+%       ACE on CodeAct split them: reps 1-3 on key B, reps 4-6 on key A
+%       JAZ invoke ran all 6 reps on key A
+%   - JAZ VERSION UNDER TEST differs between rep triples in every 6-rep arm: reps 1-3 ran at
+%     jaz 893715d00, reps 4-6 at cff8d3f62 (4 commits later). That diff touches
+%     src/jaz/template_loader.py and console.py (docstring/comment only) and adds an unused
+%     llm/copilot.py backend; the REPL, protocol, hook dispatcher and agent loop are untouched,
+%     so it should be inert for these arms. It is recorded because it is a difference in the
+%     system under test, which is a stronger caveat than the key split, and because 'should be
+%     inert' is a judgement a reader is entitled to re-check.
+%   - Within-arm resolved config is CONSTANT (hash above), so no arm changed its own settings
+%     mid-study. ACE additionally shares one hash across all six reps.
+%   - ACE freezing verified: freeze_after=42 in all six resolved configs, and ace/calls.jsonl
+%     records no adaptation at a task index above 41 in any of them.
+%   - The JAZ arms' delivered subagent prompt text is byte-identical across their six reps.
+%
+% OTHER CAVEATS
+%   - THE TWO TABLES REPORT DIFFERENT UNCERTAINTIES FOR THE OFFICIAL BASELINE'S COST, on purpose. Its
+%     cost is $16.59 in all three reps (true totals $16.588626 / $16.589859 / $16.590883), so the SEM
+%     over reps is $0.0 as computed here, from two-decimal log values ($0.0007 from the six-decimal
+%     recorded fallback). The aggregate table prints +/-0.2 instead -- the paired per-task SEMs
+%     combined in quadrature (sqrt(sum SEM_i^2) = $0.197) --
+%     because three near-identical totals from the one batch of that arm that completed are a
+%     cancellation whose replication is untestable, and +/-0.0 draws the least replicated arm as the
+%     most precisely measured one. The per-rep table keeps +/-0.0: it prints the three totals that SEM
+%     was computed from, and the paper's caption for that table explains the difference. Every other
+%     table and figure quoting this arm's cost uses +/-0.20 (see `OFFICIAL_COST_SEM`).
+%   - Not every run is error-free, though every one graded all 417 tasks: CodeAct reps 1 and 2 recorded
+%     IterationLimitExhaustedError (x1 and x2), and CodeAct rep 2 and ACE rep 4 each recorded
+%     submit_errors: 1. grader_errors is 0 in all 21 runs, so the measurements stand.
+%   - THE UNIT OF ANALYSIS IS THE REP, NOT THE TASK, and the error bars here are SEM over reps.
+%     It is tempting to treat the 417 tasks as independent Bernoulli trials and quote a binomial
+%     standard error; that is wrong for every self-improving arm, because the improver's prompt and
+%     tools at task k were shaped by tasks 1..k-1 -- the mechanism under test is what creates the
+%     dependence. Measured on the 6 JAZ reps: sd of rep TGCs is 5.10 where 417 independent tasks
+%     would give 2.14, a design effect of ~5.7x, i.e. an effective ~73 independent tasks per rep.
+%     Standard errors computed the per-task way are understated by ~2.4x. Clustering by scenario does
+%     not fix it: the run-level effect dominates the 3-variants-per-scenario structure.
+%   - n=6 per arm is too few to separate the top arms: JAZ invoke vs CodeAct+subagents is t = 1.26
+%     (df=10) on TGC, not significant.
+%
+% LaTeX requirements: booktabs (\toprule/\midrule/\cmidrule/\bottomrule), multirow, natbib or
+% biblatex (\citep), listings (\lstinline), a \checkmark and \xmark source (amssymb + pifont, or
+% bbding), and the paper's own \oursimpl macro. The `*` and $^\dagger$ markers in the aggregate
+% table's header reference notes that live in the paper, not in this file.
+
+
+% -------------------------------------------------------------------------
+% Aggregate: mean +/- SEM over reps, except the official baseline's two money
+% columns -- see OTHER CAVEATS above for why that one row quotes +/-0.20 instead.
+% -------------------------------------------------------------------------
+\begin{tabular}{rcccccc}
+\toprule
+ & & \multicolumn{5}{c}{AppWorld (\texttt{test-challenge})} \\
+\cmidrule(lr){3-7}
+ & \smash{\shortstack{prompt-\\only?\,*}} & TGC (\%) & SGC (\%) & Cost (\$) & Meta \$ & Solver \$ \\
+\midrule
+CodeAct\textsubscript{AppWorld \citep{trivedi2024appworld}} \scriptsize{(per task)} & \xmark\,$^\dagger$ & 48.2 $\pm$ 1.6 & 20.4 $\pm$ 3.2 & \underline{16.6} $\pm$ 0.2 & --- & 16.6 $\pm$ 0.2 \\
+CodeAct\textsubscript{\oursimpl{}} \citep{wang2024codeact} \scriptsize{(per task)} & \checkmark & 67.5 $\pm$ 1.2 & 43.4 $\pm$ 2.5 & \textbf{10.2} $\pm$ 0.2 & --- & \textbf{10.2} $\pm$ 0.2 \\
+CodeAct+subagents\textsubscript{\oursimpl{}} & \checkmark & \underline{71.1} $\pm$ 1.3 & \underline{47.6} $\pm$ 2.1 & 21.6 $\pm$ 1.8 & \textbf{7.3} $\pm$ 1.7 & 14.3 $\pm$ 0.9 \\
+ACE \citep{zhang2025ace} on CodeAct\textsubscript{\oursimpl{}} & \xmark & 69.9 $\pm$ 1.4 & 47.1 $\pm$ 1.3 & 30.6 $\pm$ 0.5 & 17.1 $\pm$ 0.3 & 13.5 $\pm$ 0.3 \\
+\midrule
+\oursimpl{} \lstinline|invoke| & \checkmark & \textbf{74.2} $\pm$ 2.1 & \textbf{51.1} $\pm$ 3.7 & 20.9 $\pm$ 3.7 & \underline{9.9} $\pm$ 3.8 & \underline{10.9} $\pm$ 0.6 \\
+\bottomrule
+\end{tabular}
+
+% -------------------------------------------------------------------------
+% Per-rep breakdown, with mean and (for the self-improving arms) median summary rows.
+% No bold/underline on rep rows: a single rep is not a 'best' result, and marking one
+% invites reading it as one.
+% -------------------------------------------------------------------------
+\begin{tabular}{rlccccc}
+\toprule
+ & & \multicolumn{5}{c}{AppWorld (\texttt{test-challenge})} \\
+\cmidrule(lr){3-7}
+ & rep & TGC (\%) & SGC (\%) & Cost (\$) & Meta \$ & Solver \$ \\
+\midrule
+\multirow{4}{*}{CodeAct\textsubscript{AppWorld \citep{trivedi2024appworld}} \scriptsize{(per task)}} & 1 & 46.8 & 15.8 & 16.6 & --- & 16.6 \\
+ & 2 & 46.5 & 18.7 & 16.6 & --- & 16.6 \\
+ & 3 & 51.3 & 26.6 & 16.6 & --- & 16.6 \\
+\cmidrule(lr){2-7}
+ & mean & 48.2$^{\pm1.6}$ & 20.4$^{\pm3.2}$ & 16.6$^{\pm0.0}$ & --- & 16.6$^{\pm0.0}$ \\
+\midrule
+\multirow{4}{*}{CodeAct\textsubscript{\oursimpl{}} \citep{wang2024codeact} \scriptsize{(per task)}} & 1 & 69.1 & 48.2 & 10.4 & --- & 10.4 \\
+ & 2 & 68.1 & 42.4 & 9.9 & --- & 9.9 \\
+ & 3 & 65.2 & 39.6 & 10.1 & --- & 10.1 \\
+\cmidrule(lr){2-7}
+ & mean & 67.5$^{\pm1.2}$ & 43.4$^{\pm2.5}$ & 10.2$^{\pm0.2}$ & --- & 10.2$^{\pm0.2}$ \\
+\midrule
+\multirow{8}{*}{CodeAct+subagents\textsubscript{\oursimpl{}}} & 1 & 76.0 & 56.1 & 13.9 & 3.2 & 10.6 \\
+ & 2 & 72.9 & 48.9 & 21.1 & 6.1 & 15.0 \\
+ & 3 & 66.7 & 42.4 & 23.1 & 8.4 & 14.8 \\
+ & 4 & 71.5 & 48.2 & 20.2 & 2.7 & 17.6 \\
+ & 5 & 71.0 & 47.5 & 27.2 & 13.4 & 13.8 \\
+ & 6 & 68.6 & 42.4 & 24.0 & 10.1 & 13.9 \\
+\cmidrule(lr){2-7}
+ & mean & 71.1$^{\pm1.3}$ & 47.6$^{\pm2.1}$ & 21.6$^{\pm1.8}$ & 7.3$^{\pm1.7}$ & 14.3$^{\pm0.9}$ \\
+ & median & 71.2$^{72.9}_{68.6}$ & 47.8$^{48.9}_{42.4}$ & 22.1$^{24.0}_{20.2}$ & 7.2$^{10.1}_{3.2}$ & 14.4$^{15.0}_{13.8}$ \\
+\midrule
+\multirow{8}{*}{ACE \citep{zhang2025ace} on CodeAct\textsubscript{\oursimpl{}}} & 1 & 75.3 & 52.5 & 29.9 & 16.7 & 13.2 \\
+ & 2 & 69.5 & 46.0 & 32.2 & 17.7 & 14.6 \\
+ & 3 & 64.7 & 46.0 & 30.1 & 17.0 & 13.1 \\
+ & 4 & 68.1 & 43.2 & 31.7 & 18.3 & 13.4 \\
+ & 5 & 70.7 & 46.0 & 29.2 & 16.5 & 12.8 \\
+ & 6 & 70.7 & 48.9 & 30.3 & 16.4 & 13.9 \\
+\cmidrule(lr){2-7}
+ & mean & 69.9$^{\pm1.4}$ & 47.1$^{\pm1.3}$ & 30.6$^{\pm0.5}$ & 17.1$^{\pm0.3}$ & 13.5$^{\pm0.3}$ \\
+ & median & 70.1$^{70.7}_{68.1}$ & 46.0$^{48.9}_{46.0}$ & 30.2$^{31.7}_{29.9}$ & 16.8$^{17.7}_{16.5}$ & 13.3$^{13.9}_{13.1}$ \\
+\midrule
+\multirow{8}{*}{\oursimpl{} \lstinline|invoke|} & 1 & 75.8 & 52.5 & 15.1 & 6.1 & 9.0 \\
+ & 2 & 76.3 & 54.7 & 22.2 & 9.2 & 12.9 \\
+ & 3 & 74.6 & 48.2 & 15.1 & 4.6 & 10.5 \\
+ & 4 & 74.6 & 55.4 & 14.3 & 2.3 & 12.0 \\
+ & 5 & 64.5 & 34.5 & 38.4 & 28.3 & 10.1 \\
+ & 6 & 79.6 & 61.2 & 20.0 & 9.0 & 11.1 \\
+\cmidrule(lr){2-7}
+ & mean & 74.2$^{\pm2.1}$ & 51.1$^{\pm3.7}$ & 20.9$^{\pm3.7}$ & 9.9$^{\pm3.8}$ & 10.9$^{\pm0.6}$ \\
+ & median & 75.2$^{76.3}_{74.6}$ & 53.6$^{55.4}_{48.2}$ & 17.6$^{22.2}_{15.1}$ & 7.6$^{9.2}_{4.6}$ & 10.8$^{12.0}_{10.1}$ \\
+\bottomrule
+\end{tabular}

@@ -1,0 +1,31 @@
+# StuLifeEnv (long-horizon) with JAZ reduced to CodeAct AND driven one task per session -- the memoryless floor.
+
+method:
+  name: jaz_per_task
+  # No `prompt_path`: the other methods provide a prompt teaching history search,
+  # but here there is no history to search.
+  config:
+    config_override:
+      llm:
+        model: openai/gpt-5.4-nano-2026-03-17
+        reasoning_effort: high
+      repl:
+        allow_raise: false
+        allowed_imports: ["re", "collections", "ast", "datetime", "textwrap", "pprint"]
+        traceback_verbosity: repl_only
+        # Changing the timeout is not needed because there are no delegation subagents
+        allow_timeout_pragma: false
+    hooks:
+      - IterationLimit: {max_iterations: 50}
+      # Disable subagents
+      - RecursionLimit: {max_depth: 1}
+      # Per task budget ($50 is non-binding -- the iteration limit above binds)
+      - BudgetPool: {cost_budget: 50.0}
+      - CodeAct: {}
+
+env:
+  name: stulife
+  config:
+    # Switch instructions to the single-task framing (the campus overview and nothing else)
+    # and expose `tasks_remaining` to the `JazPerTaskHarness` so that the driver can stop when all tasks are done.
+    per_task_driver: true

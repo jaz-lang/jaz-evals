@@ -1,0 +1,43 @@
+{
+  "_README": [
+    "Which run directories each StuLife arm is built from.",
+    "",
+    "Both `scripts/build_stulife_table.py` and `scripts/plot_stulife_curves.py` read this file, so",
+    "the two artifacts are always built from the same runs.",
+    "",
+    "TO REPRODUCE WITH YOUR OWN RUNS: copy this file, replace each glob with your run directories,",
+    "and pass --runs-manifest yours.json to either script. Globs are resolved against --runs-root",
+    "(default: the repo root), and may name any directory under it. They must be RELATIVE:",
+    "Path.glob refuses an absolute pattern, so put the prefix in --runs-root instead. Pass --out",
+    "(table) / --out-dir (curves) as well, or the artifacts built from your runs overwrite the",
+    "committed ones.",
+    "",
+    "UNLIKE THE APPWORLD MANIFEST, an arm here is usually ONE run directory holding several",
+    "attempts, not several run directories of one attempt each: the StuLife arms were launched with",
+    "`--attempts 3`. Both shapes work -- every attempt of every matched run becomes a rep -- but it",
+    "is why these globs name a single directory where the AppWorld ones end in `-rep-*`.",
+    "",
+    "WHY THE LETTA ARM'S RUN PREDATES ITS SIBLINGS (08-26 vs the others' 08-29/08-30/09-05): it is",
+    "the latest COMPLETE run of that arm. Not a stale pointer; it is the one to use. The four later",
+    "Letta runs and why each was rejected, so the choice can be re-checked rather than trusted:",
+    "20260901T073919Z and 20260901T074325Z have partially-written attempts, 20260903T014427Z is the",
+    "minimal-search-guidance ablation rather than the baseline, and 20260903T130138Z is .superseded."
+  ],
+  "arms": {
+    "codeact_per_task": [
+      "runs/stulife/jaz_per_task/20260829T193822Z-per-task-codeact-full-1284-x3/"
+    ],
+    "codeact_subagents_smolagents": [
+      "runs/stulife/smolagents/20260905T215637Z-smolagents-full-1284-subagent-rename-x3/"
+    ],
+    "codeact_subagents": [
+      "runs/stulife/jaz/20260830T123523Z-codeact-subagents-post-stdout-fix-1284-x3/"
+    ],
+    "letta": [
+      "runs/stulife/letta/20260826T174343Z-letta-full-post-review-3x/"
+    ],
+    "jaz_invoke": [
+      "runs/stulife/jaz/20260830T123517Z-full-jaz-post-stdout-fix-1284-x3/"
+    ]
+  }
+}

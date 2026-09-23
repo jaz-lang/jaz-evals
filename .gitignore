@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.venv*/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+runs/
+# AppWorld's task data, downloaded by `appworld download data` (see README). ~90MB and not ours to
+# vendor; it lives here rather than in the JAZ checkout so no path leaves this repo.
+/data/
+# The other half of `root: .`: AppWorld WRITES `experiments/` (per-task working databases) into the
+# root it is given, so a run drops one here. Ignored for the same reason as `data/`, and because
+# `provenance.json` lists untracked files individually -- unignored, every run would grow it by one
+# entry per working DB.
+/experiments/
+*.log
+
+# Secrets. These hold real OpenAI keys and are read at launch (scripts/run_appworld_official_react.sh
+# treats .env as authoritative), so they must never be committable -- the pattern covers variants like
+# .env2 and .env.local as well. Ignored rather than tracked-with-placeholders on purpose: a tracked
+# .env invites someone to fill it in and commit the fill.
+.env
+.env*

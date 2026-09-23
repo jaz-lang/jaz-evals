@@ -1,0 +1,31 @@
+# StuLifeEnv (long-horizon) with the Letta (MemGPT) baseline
+# Needs Docker + `letta/letta:0.16.8` + OPENAI_API_KEY (a dedicated Letta server per attempt)
+
+method:
+  name: letta
+  prompt_path: ../prompts/long_horizon/letta.md
+  config:
+    model: openai/gpt-5.4-nano-2026-03-17
+    reasoning_effort: high
+    # Newest version; successor to `memgpt_agent`/`memgpt_v2_agent`
+    agent_type: letta_v1_agent
+    # Ideally one task per round, but when the agent is wedged it can spend many rounds with no progress
+    max_rounds: 20000
+    # Higher cost cap because Letta runs are more expensive ($40-50)
+    # Note that the cap doesn't take into account compaction and embedding costs.
+    max_cost_usd: 200.0
+    # Closer setting to JAZ's code-mode, allowing multiple tool calls in a single response
+    parallel_tool_calls: true
+    persona: I am a student at Lifelong Agent University completing campus tasks across the academic year.
+    # The driver delivers each task as a user message instead of letting the agent pull it with get_next_task(),
+    # so that it is visible to Letta's conversation_search. (Tool call results are not searchable in Letta.)
+    deliver_task_tool: get_next_task
+    # The agent often uses natural keyword queries incompatible with Letta's built-in SQL
+    # `ILIKE '%query%'` search. So we enable Turbopuffer-backed message search. Needs TURBOPUFFER_API_KEY.
+    turbopuffer_region: gcp-us-central1
+
+env:
+  name: stulife
+  config:
+    # The driver delivers each task as a user message (see above)
+    task_delivery: true

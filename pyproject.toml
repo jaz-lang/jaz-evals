@@ -1,0 +1,228 @@
+[project]
+name = "jaz-evals"
+version = "0.1.0"
+description = "Evals for benchmarking JAZ"
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0",
+]
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.optional-dependencies]
+# The smolagents CodeAct baseline (jaz_evals.harnesses.smolagents_harness). A real PyPI dependency,
+# an extra, not a base dependency, because only the smolagents configs need it, and the
+# harness imports it lazily so importing `jaz_evals` never requires it. `[litellm]` pulls the LiteLLM
+# model backend the config uses (`LiteLLMModel`, on the same dated `openai/gpt-5.4-nano` snapshot as
+# every other StuLife arm), matching the rest of the suite. Install with `uv sync --extra smolagents`.
+smolagents = [
+    # Pinned exactly, and 1.20 is the floor it could ever have had: the harness passes
+    # `code_block_tags=("<code>", "</code>")` so the prompt's examples and the parser cannot drift
+    # apart, and that argument was added in 1.20 -- below it, the call is a TypeError.
+    #
+    # The wrapper itself changed one release earlier: 1.14-1.18 instruct markdown ```py fences,
+    # 1.19 hard-codes `<code>`/`</code>`, and 1.20+ template it with `<code>` as the default. So 1.19
+    # would render correctly by luck; 1.20 lets us say so instead. Verified by reading
+    # `prompts/code_agent.yaml` in every released wheel from 1.14.0 to 1.26.0.
+    #
+    # Exact, not a floor, and the ceiling is the point: this is a BASELINE, so its fairness argument
+    # is written against upstream internals at one version. `smolagents_harness.py` measures against
+    # `BASE_PYTHON_TOOLS` (52 keys, byte-identical across 1.13.0/1.21.0/1.26.0), times a template
+    # re-render at 1.26, and documents that 1.26 does not raise on an exhausted step budget. An open
+    # floor lets a later resolve move past all of that while still importing cleanly -- the harness
+    # keeps running, the comments quietly stop describing it, and the baseline is no longer the one
+    # that was measured. 1.26.0 is what the published numbers ran on.
+    "smolagents[litellm]==1.26.0",
+]
+# The figure generators in `scripts/` need a plotting backend, and matplotlib pulls a compiled
+# wheel plus numpy, pillow, fonttools and kiwisolver into every environment that installs
+# jaz-evals. `uv sync --extra plots` when you want a figure. The scripts import it inside the
+# function, not at module scope, so the rest of `scripts/` still runs without the extra.
+plots = [
+    # PINNED EXACTLY, and the exactness is the point. The eleven figures in `tables/` are COMMITTED
+    # and gated by `--check`, and a PDF's bytes are not stable across matplotlib patch releases:
+    # 3.11.1 rebuilds every committed figure byte for byte, 3.11.2 renders the same picture to
+    # different bytes, so a resolver free to pick 3.11.2 makes `--check` report all eleven stale with
+    # nothing to say the library was why. A reproduction package should pin what it was built with,
+    # the same reason the configs name a dated model snapshot rather than an alias. (The feature floor
+    # underneath the pin is 3.10, for `Axes.errorbar(elinestyle=...)`, which `plot_combined_cost.py`
+    # uses to carry the solid/dashed implementation pairing onto the error bars.)
+    "matplotlib==3.11.1",
+    # Used for its default theme only (`sns.set_theme`), not its plotting API: the figures are drawn
+    # with plain matplotlib so a reader does not need to know two libraries to change one. Declared
+    # rather than styled by hand because matching seaborn's palette and grid by hand is the kind of
+    # thing that drifts silently between figures.
+    "seaborn>=0.13",
+]
+ace = [
+    "sentence-transformers>=3.0",
+    "numpy>=1.26",
+    # Not used by anything here -- it is `transformers`' missing guard. `transformers` 5.15.1 defines
+    # `PILImageResampling` only when Pillow is importable, but `models/gemma4/image_processing_pil_gemma4`
+    # references it in a class body regardless, so merely importing `sentence_transformers` raises
+    # `NameError` with Pillow absent. Declared here rather than left to chance because the failure is
+    # at import time and looks nothing like a missing image library.
+    "pillow>=10.0",
+]
+# The Letta (MemGPT) baseline (jaz_evals.harnesses.letta_harness). Like `smolagents`, a
+# real PyPI extra only the Letta configs need, imported lazily. `letta-client` is the SDK that drives a
+# Letta server (run separately in Docker); `litellm` prices the server-reported token usage (its
+# `cost_per_token` is cache-tier aware -- the same rates jaz's own pricing reads); `requests` is the
+# host-side readiness poll. Install with `uv sync --extra letta` (the run also needs Docker + a pulled
+# `letta/letta:0.16.8` image -- the version `_LETTA_IMAGE` pins and every container patch was written
+# against -- plus `OPENAI_API_KEY`, and `TURBOPUFFER_API_KEY` for the shipped StuLife config, which
+# turns on Turbopuffer-backed message search; see the harness docstring).
+letta = [
+    "letta-client==1.12.1",
+    "litellm>=1.40",
+    "requests>=2.31",
+]
+
+[project.scripts]
+jaz-evals = "jaz_evals.cli:main"
+jaz-evals-analyze = "jaz_evals.analyze_cli:main"
+# Renders a Letta run's `letta_messages.jsonl` trace as Markdown; the trace is stored as JSONL
+# (lossless/greppable) and is unreadable at run scale without this.
+jaz-evals-letta-log = "jaz_evals.harnesses.letta_log_viewer:main"
+jaz-evals-smolagents-log = "jaz_evals.harnesses.smolagents_log_viewer:main"
+
+[dependency-groups]
+# How a benchmark's package is declared: one whose package is a local editable checkout gets its own
+# **dependency group**; one installable unpatched from an index gets its own **extra**
+# above. What forces the rule is what ships -- extras are published package metadata, while
+# `[tool.uv.sources]` is not. An `appworld` *extra* would therefore resolve `appworld` from PyPI (the
+# unpatched upstream) for anyone installing the built wheel as `jaz-evals[appworld]`, which is the
+# breakage the fork comment below describes, and an extra carries no relative path with which to say
+# "this fork instead". Dependency groups (PEP 735) are dev-time and never ship, so they can carry a
+# path source where an extra cannot. Each benchmark gets its *own* group rather than sharing one, so
+# selecting a group selects one benchmark's dependency: an AppWorld run syncs
+# `--group local --group appworld`, and `--all-groups` still gets everything.
+#
+# It does NOT mean you can clone one submodule and skip the other, and this was checked in both
+# directions: uv validates every path source in `[tool.uv.sources]` whatever groups you select, so
+# `--group appworld` alone fails on a missing `third_party/ELL-StuLife` and `--group stulife` alone
+# fails on a missing `third_party/appworld`. `--frozen` skips the re-resolve and sidesteps it, but the
+# fix is to initialise both, as the README's `git submodule update --init third_party` does.
+
+# JAZ is the system under test, but it is deliberately NOT a hard dependency of this package: the suite
+# is built to type-check and import without it (the JAZ harness is checked at `basic` and imports jaz
+# lazily). So jaz lives in its own group rather than in `[project.dependencies]`:
+# a jaz-free install stays possible, while running an agent opts in with
+# `uv sync --group local` (or `--all-groups`). It is the only member: JAZ is the system under test, not
+# a benchmark, so anyone running an agent needs it and no benchmark checkout rides along.
+#
+# Pinned to a released version on PyPI, so no working tree here can drift from what the pin names. A
+# prerelease, and an exact `==` pin is what makes it installable -- a resolver refuses prereleases
+# unless the specifier names one, which this does.
+#
+# It is the earliest release CONTAINING the code the published runs ran, not the version they ran:
+# those were dev checkouts, mostly dirty, self-reporting 0.2.0a1 and 0.2.0a3, and two of their commits
+# are now unreachable. The README says so rather than letting the pin imply otherwise. What holds the
+# claim up is that every AGENT-facing prompt is byte-identical across the gap, verified against the
+# published traces -- so what the agents were asked did not move, whatever else did.
+#
+# One prompt is not, and it is worth naming: ACE's reflector and curator prompts embed the raw ATIF
+# trajectory, whose header carries `version` and `model_name`. Those necessarily read 0.2.0a4 and the
+# dated snapshot now, where the published ones read 0.2.0a3 and the floating alias. The static
+# instruction header and the task text are identical; the two changed lines are the record of what
+# ran, so they cannot be identical without being wrong.
+local = [
+    "jaz-lang==0.2.0a4",
+]
+# AppWorld, the benchmark AppWorldEnv wraps. Unlike jaz and stulife it *is* a public package on PyPI;
+# what is unpublished is the patch AppWorldEnv needs, which is why the editable submodule beats a
+# release. `third_party/appworld` is the fork `git@github.com:jaz-lang/appworld.git`, pinned on its
+# **`jaz` branch** (jaz-lang/appworld#2) -- the fork's patches as a linear series on upstream `main`,
+# rebased forward when upstream syncs. Re-run `uv sync --group appworld` after such a rebase: upstream
+# `ddf8b20` added `text2num`, and an un-synced venv fails at `import appworld`.
+#
+# Five patches ride on that branch, and three of them are load-bearing for one arm or another.
+# "Fix incompatability with parent REPL" is what makes the jaz-evals AppWorld arms run at all:
+# AppWorld's SafetyGuard re-enables `faulthandler` on whatever stderr is current, which under the JAZ
+# REPL is the captured one, and the patch pins it to `sys.__stderr__`. The other two matter to the
+# official-baseline arm instead, which runs AppWorld's own agent through
+# `scripts/run_appworld_official_react.sh`: one threads `prompt_cache_key` through the simplified LM
+# call chain, which that script requires to give each rep its own cache (upstream's
+# `non_cached_lm_call` rejects unknown kwargs, so an unpatched checkout fails loudly there); the other
+# retries an OpenAI 400 `invalid_prompt` instead of conceding the task, where upstream classes every
+# `BadRequestError` as breaking -- measured over 3 reps x 214 shared tasks of that agent, 15.7% of
+# tasks died that way, and 61% of the tasks flagged in one rep were not flagged in the other two. The
+# remaining two (a `save_logs` O(N^2)->O(N) fix, SQLite thread-safety) are performance and robustness
+# only. Sit on upstream `StonyBrookNLP/appworld`, or on the fork's `main` which mirrors it, and runs
+# break in a way nothing here would explain -- the branch exists because that patch used to be a lone
+# commit on the fork's `main`, where a private-repo sync moved `main` to a history without it and
+# nothing failed loudly. A rebase conflicts; an orphaned commit just disappears.
+#
+# Out of the default install for the same reason as jaz and stulife: an install that is not running
+# AppWorld should not need its multi-gigabyte checkout. Declared
+# here rather than picked up through `jaz-lang[eval-appworld]` because uv resolves a dependency's own
+# `[tool.uv.sources]` only for workspace members -- jaz's mapping of `appworld` to its (empty)
+# `third_party/appworld-official` submodule does not reach this project, so the source below is what
+# actually locates the checkout. Unversioned because the fork's `0.2.0.dev0` tracks no release.
+appworld = [
+    "appworld",
+]
+# ELL-StuLife, the campus-life benchmark StuLifeEnv wraps. Like jaz it is not on any index; it is
+# vendored in-repo as the `third_party/ELL-StuLife` git submodule, so it is out of the default install
+# for the same reason. The env imports it lazily, so importing `jaz_evals` never requires it.
+# Unversioned because
+# the vendored copy carries no release cadence -- the editable install resolves whatever the submodule
+# reports (0.1.0 today).
+stulife = [
+    "stulife",
+]
+
+# JAZ is NOT listed below: it installs from PyPI at the version the `local` group pins, so there is
+# no path source to give it. Only the two benchmark forks are vendored as submodules.
+#
+# Every source here is a CHILD path for one reason: a path that escapes the repo (`../appworld`, as
+# these once were) is correct only for one way of cloning, and there is no way to vary it per
+# checkout -- uv reads sources from pyproject.toml alone, rejecting `[sources]` in a uv.toml and
+# offering no environment-variable override. A submodule path is instead guaranteed by git in every
+# checkout.
+[tool.uv.sources]
+# StuLifeEnv's benchmark data and code are vendored in-repo as the `third_party/ELL-StuLife` git
+# submodule (pinned in `.gitmodules`). The env's default `data_dir` points at that submodule's
+# `task_data/`; the `stulife` package installs editable from the same tree. Only synced with the
+# `stulife` group, and the submodule must be checked out (`git submodule update --init`) for the
+# install to resolve.
+stulife = { path = "third_party/ELL-StuLife/Stulife", editable = true }
+# Where the AppWorld *package* comes from: the `third_party/appworld` submodule. It is not where the task
+# data comes from -- that is the env's separate `root` config key, `.` in the shipped `appworld_*`
+# configs, because `appworld install` is run from this repo's root and writes the gitignored `data/`
+# here. The fork itself ships no `data/`.
+# Editable, so a run exercises the working copy. Only synced with the `appworld` group; override to
+# point elsewhere.
+appworld = { path = "third_party/appworld", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jaz_evals"]
+
+[tool.ruff]
+line-length = 110
+src = ["src"]
+# The `third_party/ELL-StuLife` git submodule is vendored upstream code (the `stulife` package + its
+# task data); it follows its own style and is not ours to lint or format. Exclude it so `ruff check .`
+# and `ruff format .` scan only this repo's sources. `letta_patches/` is excluded for a different reason:
+# it is our own code, but it never runs in this interpreter -- each file is mounted into the Letta
+# container and imported by *its* Python against untyped Letta internals, so this repo's lint and type
+# rules describe the wrong environment. One file (`set_prompt_cache_key`) is also kept byte-identical to
+# the predecessor suite's copy, which reformatting would break.
+# `third_party` covers both benchmark submodules; JAZ itself is not there, since the `local` group
+# installs it from PyPI rather than vendoring it.
+extend-exclude = ["third_party", "src/jaz_evals/harnesses/letta_patches"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["src"]
+# Ours, but executed inside the Letta container against untyped Letta internals -- strict mode here would
+# describe an interpreter these files never run in. See the `extend-exclude` note above.
+exclude = ["src/jaz_evals/harnesses/letta_patches"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"

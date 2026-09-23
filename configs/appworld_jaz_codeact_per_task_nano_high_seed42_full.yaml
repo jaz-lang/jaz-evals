@@ -1,0 +1,31 @@
+# AppWorld's full test_challenge split (417 tasks) with JAZ ablated to CodeAct solving
+# every task individually in a separate session.
+
+method:
+  name: jaz_per_task
+  # No `prompt_path`: the other methods provide a prompt teaching continual self-improvement,
+  # but here there is no self-improvement across tasks.
+  config:
+    config_override:
+      llm:
+        model: openai/gpt-5.4-nano-2026-03-17
+        reasoning_effort: high
+      repl:
+        allow_raise: false
+        allowed_imports: ["re", "collections", "ast", "datetime", "textwrap", "pprint"]
+        traceback_verbosity: repl_only
+        allow_timeout_pragma: false
+    hooks:
+      - IterationLimit: {max_iterations: 50}
+      # Disable subagents
+      - RecursionLimit: {max_depth: 1}
+      # Per task budget ($50 is non-binding -- the iteration limit above binds)
+      - BudgetPool: {cost_budget: 50.0}
+      - CodeAct: {}
+
+env:
+  name: appworld
+  config:
+    split: test_challenge
+    task_seed: 42
+    root: .

@@ -1,0 +1,96 @@
+# StuLifeEnv (long-horizon) with the smolagents CodeAct+subagents harness
+# smolagents version of stulife_jaz_codeact_subagents.yaml
+
+method:
+  name: smolagents
+  prompt_path: ../prompts/long_horizon/smolagents.md
+  config:
+    model:
+      model_id: openai/gpt-5.4-nano-2026-03-17
+      reasoning_effort: high
+    # JAZ sets no step limit, but smolagents requires one, so we set a high value.
+    max_steps: 1000000
+    # JAZ sets no depth limit, but smolagents requires one, so we set a high value.
+    max_depth: 200
+    context_warn_fraction: 0.7
+    # Adaptation of stulife_jaz.yaml's ContextWindowWarning warning_text for smolagents.
+    # Wrapping the history is needed to truncate its display in the prompt.
+    # IMPORTANT: Keep the two try/except blocks in order shown below, and keep the names
+    # `output_history` and `prev_history_wrapped` as they are. See prompts/README.md for details.
+    context_warning_text: |
+      Your context window is close to full. You must finish your REPL session now by delegating
+      all remaining work to a subagent.
+
+      IMPORTANT NOTES:
+      - You must give the subagent both the previous agent's REPL history (`prev_history`) if available,
+        as well as your own REPL output history (`output_history`), so that existing work is not lost.
+        You must wrap them into a wrapper when you hand them off so as to not blow up the subagent's context.
+
+      Follow this template exactly:
+      <code>
+      # Bind both histories before combining them
+      try:
+          output_history
+      except Exception:
+          output_history = []
+      try:
+          prev_history = prev_history_wrapped.unwrap()
+      except Exception:
+          prev_history = []
+
+      class Wrapped:
+          def __init__(self, obj):
+              self._obj = obj
+
+          def unwrap(self):
+              return self._obj
+
+          def __repr__(self):
+              return str(self._obj)[-{max_chars}:]
+
+      final_answer(subagent_{i}(
+          # Give the subagent the <instructions> and <guidance> blocks of your first user prompt
+          # Copy the full verbatim text into the `task` argument to the subagent
+          # In addition, summarize what has been done and what remains (hard-coded string)
+          # and tell the subagent what the next steps are (hard-coded string)
+          task="""<instructions>
+      ...the verbatim <instructions> text in your first user prompt...
+      </instructions>
+      <guidance>
+      ...the verbatim <guidance> text in your first user prompt...
+      </guidance>
+      <prev_progress_summary>
+      So far, ...
+      </prev_progress_summary>
+      <next_steps>
+      Your next step is to ...
+      </next_steps>
+      """,
+          additional_args={
+              # Give the subagent both the previous agent's REPL history (the `prev_history` variable)
+              # and your own REPL output history (the `output_history` variable), wrapped
+              "prev_history_wrapped": Wrapped(prev_history + output_history),
+              # Hand over any state you've been tracking
+              "state": ...,
+          },
+      ))
+      </code>
+    # Matches JAZ's allowed_imports, but note that smolagents hard-codes a base set of imports
+    # that are always allowed, so the actual allowed imports are the union of the two.
+    additional_authorized_imports: ["re", "collections", "ast", "datetime", "textwrap", "pprint"]
+    # High timeout to allow subagents of delegation handoffs to run to completion.
+    # Diverges from JAZ (30s) because the agent can override the timeout in JAZ, but smolagents cannot.
+    exec_timeout_seconds: 86400
+    # {max_chars} in the context_warning_text above, matching JAZ's protocol.max_invoke_input_length
+    handoff_history_max_chars: 50000
+    # Make the agent keep working if there are still tasks left (equivalent to JAZ's ValidateReturn)
+    guard_return: true
+    # smolagents subagents are only blocked once from returning before all tasks are done.
+    # This diverges from JAZ (unbounded) because smolagents likes to launch useless subagents for
+    # task content recall (due to smolagents' framing of subagents as humans + user prompt erosion
+    # across delegation boundaries), and it doesn't make sense to block them from returning
+    max_subagent_return_rejections: 1
+    max_cost_usd: 50.0
+
+env:
+  name: stulife

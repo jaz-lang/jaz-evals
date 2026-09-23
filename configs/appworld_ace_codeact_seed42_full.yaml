@@ -1,0 +1,49 @@
+# AppWorld's full test_challenge split (417 tasks) with ACE performing
+# continual self-improvement across the task queue.
+# ACE optimizes a playbook for the prompt to CodeAct. CodeAct is implemented
+# as an ablation of JAZ invoke for better comparability with the other methods.
+
+method:
+  name: ace
+  config:
+
+    config_override:
+      llm:
+        model: openai/gpt-5.4-nano-2026-03-17
+        reasoning_effort: high
+        temperature: 1.0
+      repl:
+        allow_raise: false
+        allowed_imports: ["re", "collections", "ast", "datetime", "textwrap", "pprint"]
+        traceback_verbosity: repl_only
+        allow_timeout_pragma: false
+      protocol:
+        # The playbook grows to ~100k characters after ~40 training iterations
+        max_invoke_input_length: 200000
+    hooks:
+      # 50 iterations per task session
+      - IterationLimit: {max_iterations: 50}
+      - RecursionLimit: {max_depth: 1}
+      # $50 budget for the whole run, including all task sessions
+      - BudgetPool: {cost_budget: 50.0}
+      - CodeAct: {}
+
+    reflector_model: openai/gpt-5.4-2026-03-05
+    reasoning_effort: high
+    # ACE adapts for *every* task, with a projected meta cost of $200 if we trained on all 417 tasks.
+    # To match JAZ's cost, ACE would only be able to train on 20 tasks.
+    # The ACE paper demonstrates that training on 90 tasks already works.
+    # Our performance-cost tradeoff chooses to train on the first 10% of tasks (42 tasks)
+    freeze_after: 42
+    dedup: true
+    # The paper compared {0.5, 0.7, 0.9} and did not find the results to depend on dedup threshold.
+    # Dedup essentially does nothing at 0.9, whereas 0.5 mostly merges genuinely different bullets
+    # (by manual inspection), so we choose the middle value 0.7.
+    dedup_threshold: 0.7
+
+env:
+  name: appworld
+  config:
+    split: test_challenge
+    task_seed: 42
+    root: .
