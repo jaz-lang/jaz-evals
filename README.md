@@ -1,8 +1,18 @@
 # jaz-evals
 
-Reproduction package for the evaluation results in *Harness as a Language: A Minimalist Agent
-Framework With Maximal Expressivity*: **ten arms across two benchmarks**, with the config each was
+Reproduction package for the evaluation results in ["Harness as a Language: A Minimalist Agent
+Framework With Maximal Expressivity"](https://arxiv.org/abs/2609.26891): **ten arms across two benchmarks**, with the config each was
 run with.
+
+If you're using JAZ, please cite our paper using the following BibTeX entry:
+```
+@article{li2026jaz,
+  title={Harness as a Language: A Minimalist Agent Framework With Maximal Expressivity},
+  author={Li, Zhening and Liu, Joshua and Vukelic, Mateja and Shen, Nicole and Lall, Supriya and Thakur, Amitayush and Zhang, Alex and Khattab, Omar and Light, Jonathan and Solar-Lezama, Armando},
+  journal={arXiv preprint arXiv:2609.26891},
+  year={2026}
+}
+```
 
 **JAZ** is the agent framework under test. An agent runs as a Python REPL session: it writes code
 that can reference its own inputs and transcript, delegates sub-tasks with `invoke`,
