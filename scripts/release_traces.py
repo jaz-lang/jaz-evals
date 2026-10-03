@@ -347,7 +347,7 @@ and the repository together are the whole path from transcript to published numb
 is linked from this archive's record, under *is supplemented by*.)
 
 Unpack this archive anywhere and point a generator at it with `--runs-root`. The two tables need
-nothing but a Python 3 interpreter, and run from any working directory:
+nothing but Python 3.10 or newer, and run from any working directory:
 
     DIR=/path/to/unpacked
     python3 scripts/build_stulife_table.py  --check --runs-root "$DIR"
