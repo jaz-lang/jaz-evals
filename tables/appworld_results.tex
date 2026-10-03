@@ -24,12 +24,13 @@
 %                        runs/appworld/ace/20260903T015913Z-aw417-ace-codeact-freeze42-dedup07-rep-[456]/
 %   JAZ invoke           runs/appworld/jaz/20260829T033437Z-aw417-jaz-meta-full-rep-*/
 %                        runs/appworld/jaz/20260901T225418Z-aw417-jaz-meta-full-rep-[456]/
-%   official baseline    NOT in this repo -- AppWorld's own experiment outputs under its DATA root.
-%                        Point --official-root at yours (and --official-logs at its per-rep run logs,
-%                        which carry the cost); absent, that row falls back to recorded constants and
-%                        the provenance block below says so. `runs/` is gitignored, so NONE of the
-%                        paths above survive a fresh clone either; they name the machine this was
-%                        built on, and the generator is what makes the table reproducible from them.
+%   official baseline    --official-root / --official-logs when given (the logs default to
+%                        <root>/logs); else runs/appworld/official_react/ under --runs-root, where the
+%                        published trace archive puts it; else this machine's absolute defaults.
+%                        Absent all of these, that row falls back to recorded constants and the
+%                        provenance block below says so. `runs/` is gitignored, so NONE of the paths
+%                        above survive a fresh clone either; they name the machine this was built on,
+%                        and the generator is what makes the table reproducible from them.
 %
 % How each column is computed:
 %   TGC       task goal completion: 100 * successes / 417, from the `success` field of each row in

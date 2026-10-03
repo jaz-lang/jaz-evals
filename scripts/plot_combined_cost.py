@@ -444,16 +444,18 @@ def main() -> int:
     parser.add_argument(
         "--official-root",
         type=Path,
-        default=aw.OFFICIAL_ROOT,
-        help="AppWorld's experiment-output root for the official ReAct baseline "
-        "(default: the path these runs were produced at; with --official-logs it also decides "
-        "where that arm's cost comes from)",
+        default=None,
+        help="AppWorld's experiment-output root for the official ReAct baseline (default: as the "
+        "results table finds it -- runs/appworld/official_react/ under --appworld-runs-root, else "
+        "the path these runs were produced at; with --official-logs it also decides where that "
+        "arm's cost comes from)",
     )
     parser.add_argument(
         "--official-logs",
         type=Path,
-        default=bt.OFFICIAL_LOGS,
-        help="directory of that baseline's per-rep run logs, which carry its cost",
+        default=None,
+        help="directory of that baseline's per-rep run logs, which carry its cost (default: as the "
+        "results table finds them -- logs/ inside the official root)",
     )
     parser.add_argument(
         "--check", action="store_true", help="exit 1 if the committed figure is stale; writes nothing"
@@ -463,6 +465,11 @@ def main() -> int:
     aw_manifest = load_manifest(args.appworld_manifest)
     runs_root: Path = args.runs_root.resolve()
     aw_runs_root: Path = args.appworld_runs_root.resolve()
+    # Resolved exactly as the results table resolves them, so this figure cannot pair that arm's
+    # pass rate or cost with a different tree than the table reports.
+    official_root, official_logs = bt.official_paths(
+        aw_runs_root, args.official_root, args.official_logs
+    )[:2]
 
     plt = set_theme()
 
@@ -478,7 +485,7 @@ def main() -> int:
         )
     # See the note in `plot_combined_curves.py`: without the filter this dies on any machine that
     # does not have the official baseline's artifacts.
-    aw_arms = aw.available_arms(official_root=args.official_root)
+    aw_arms = aw.available_arms(official_root=official_root)
     aw_series = aw.absolute_series(
         aw.read_curves(
             aw.piece_bounds(aw.N_TASKS, 1),
@@ -486,7 +493,7 @@ def main() -> int:
             aw_runs_root,
             aw_arms,
             manifest_path=args.appworld_manifest,
-            official_root=args.official_root,
+            official_root=official_root,
         ),
         "mean",
         aw_arms,
@@ -494,7 +501,7 @@ def main() -> int:
 
     left_points = stulife_points(sl_series, sl_manifest, runs_root)
     right_points = appworld_points(
-        aw_series, aw_manifest, aw_runs_root, aw_arms, args.official_root, args.official_logs
+        aw_series, aw_manifest, aw_runs_root, aw_arms, official_root, official_logs
     )
 
     fig, (left, right) = plt.subplots(1, 2, figsize=FIGSIZE)
@@ -539,8 +546,8 @@ def main() -> int:
                     "--runs-root": REPO,
                     "--appworld-runs-root": REPO,
                     "--out": OUT,
-                    "--official-root": aw.OFFICIAL_ROOT,
-                    "--official-logs": bt.OFFICIAL_LOGS,
+                    "--official-root": None,
+                    "--official-logs": None,
                 },
             )
             return report_pdf_check([target], args.out.parent, cmd)

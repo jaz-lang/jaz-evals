@@ -50,9 +50,10 @@ Reproducing with your OWN runs: the arms' run directories live in `scripts/appwo
 with `scripts/build_appworld_table.py`. Copy it, replace each glob with yours, and pass
 `--runs-manifest yours.json`; globs resolve against `--runs-root` (default: the repo root). Pass
 `--out-dir` too -- otherwise the figures built from your runs land on top of this repo's committed ones.
-The official ReAct line needs artifacts that live outside this repo, at `--official-root` (default: the
-original run's own machine); when they are absent at that path it is dropped from the figure (with a
-note on stderr) rather than failing the build.
+The official ReAct line is found exactly as the results table finds it: `--official-root` when given,
+else `runs/appworld/official_react/` under `--runs-root` (where the published trace archive puts it),
+else the original run's own machine. When it is absent from all of these it is dropped from the figure
+(with a note on stderr) rather than failing the build.
 
     uv run python scripts/plot_appworld_curves.py \
         --runs-manifest mine.json --runs-root /path/to/checkout --out-dir myfigs/ \
@@ -99,7 +100,7 @@ from _curves import (
     piece_bounds,
     set_theme,
 )
-from build_appworld_table import DEFAULT_MANIFEST, _official_evaluation
+from build_appworld_table import DEFAULT_MANIFEST, _official_evaluation, official_paths
 
 
 # PDF only. It is vector (so it scales in the paper), it is what pdflatex includes with no conversion
@@ -264,6 +265,17 @@ def _our_curves(globs: list[str], bounds: list[tuple[int, int]], runs_root: Path
             rows.sort(key=lambda r: r["task_index"])
             curves.append([100 * sum(1 for r in rows[a:b] if r["success"]) / (b - a) for a, b in bounds])
     return curves
+
+
+def resolve_official_root(runs_root: Path, official_root: Path | None) -> Path:
+    """Where the official baseline is read from: the same answer the results table gives.
+
+    `--official-root` when given; else the archive's copy under `runs_root`; else the machine default.
+    Shared with the two combined figures, so no figure can draw that arm from a different tree than
+    the table reports it from -- they used to default to the machine path alone, and silently drop
+    the line when pointed at the archive with `--runs-root` but no `--official-root`.
+    """
+    return official_paths(runs_root, official_root, None)[0]
 
 
 def _official_available(official_root: Path = OFFICIAL_ROOT) -> bool:
@@ -458,7 +470,7 @@ def _rebuild_command(args: argparse.Namespace) -> str:
             "--out-dir": REPO / "tables",
             "--stat": "median",
             "--pieces": N_PIECES,
-            "--official-root": OFFICIAL_ROOT,
+            "--official-root": None,
         },
     )
 
@@ -501,23 +513,24 @@ def main() -> int:
     parser.add_argument(
         "--official-root",
         type=Path,
-        default=OFFICIAL_ROOT,
-        help="AppWorld's experiment-output root for the official ReAct baseline "
-        "(default: the path these runs were produced at; that arm is dropped, with a note, "
-        "when it is absent)",
+        default=None,
+        help="AppWorld's experiment-output root for the official ReAct baseline (default: as the "
+        "results table finds it -- runs/appworld/official_react/ under --runs-root, else the path "
+        "these runs were produced at; that arm is dropped, with a note, when it is absent)",
     )
     args = parser.parse_args()
     manifest = load_manifest(args.runs_manifest)
     runs_root: Path = args.runs_root.resolve()
+    official_root = resolve_official_root(runs_root, args.official_root)
 
     # Imported here, not at module scope: matplotlib is the optional `plots` extra, and the rest of
     # scripts/ must stay runnable without it.
     plt = set_theme()
 
     bounds = piece_bounds(N_TASKS, args.pieces)
-    arms = available_arms(official_root=args.official_root)
+    arms = available_arms(official_root=official_root)
     curves = read_curves(
-        bounds, manifest, runs_root, arms, manifest_path=args.runs_manifest, official_root=args.official_root
+        bounds, manifest, runs_root, arms, manifest_path=args.runs_manifest, official_root=official_root
     )
     if BASELINE not in curves:
         raise SystemExit(f"the {BASELINE} arm is missing, so the relative panel has no baseline.")

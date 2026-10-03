@@ -234,10 +234,10 @@ def main() -> int:
     parser.add_argument(
         "--official-root",
         type=Path,
-        default=aw.OFFICIAL_ROOT,
-        help="AppWorld's experiment-output root for the official ReAct baseline "
-        "(default: the path these runs were produced at; that arm is dropped, with a note, "
-        "when it is absent)",
+        default=None,
+        help="AppWorld's experiment-output root for the official ReAct baseline (default: as the "
+        "results table finds it -- runs/appworld/official_react/ under --appworld-runs-root, else "
+        "the path these runs were produced at; that arm is dropped, with a note, when it is absent)",
     )
     parser.add_argument(
         "--check", action="store_true", help="exit 1 if the committed figure is stale; writes nothing"
@@ -247,6 +247,7 @@ def main() -> int:
     aw_manifest = load_manifest(args.appworld_manifest)
     runs_root: Path = args.runs_root.resolve()
     aw_runs_root: Path = args.appworld_runs_root.resolve()
+    official_root = aw.resolve_official_root(aw_runs_root, args.official_root)
 
     plt = set_theme()
 
@@ -269,14 +270,14 @@ def main() -> int:
     # `available_arms()` rather than `aw.ARMS`: the official baseline is read from artifacts that
     # live outside any run tree, and without this the figure dies with a bare `FileNotFoundError` on
     # every machine but the one those artifacts are on.
-    aw_arms = aw.available_arms(official_root=args.official_root)
+    aw_arms = aw.available_arms(official_root=official_root)
     aw_curves = aw.read_curves(
         aw_bounds,
         aw_manifest,
         aw_runs_root,
         aw_arms,
         manifest_path=args.appworld_manifest,
-        official_root=args.official_root,
+        official_root=official_root,
     )
     aw_series = aw.absolute_series(aw_curves, "mean", aw_arms)
 
@@ -332,7 +333,7 @@ def main() -> int:
                     "--appworld-runs-root": REPO,
                     "--out": OUT,
                     "--pieces": aw.N_PIECES,
-                    "--official-root": aw.OFFICIAL_ROOT,
+                    "--official-root": None,
                 },
             )
             return report_pdf_check([target], args.out.parent, cmd)

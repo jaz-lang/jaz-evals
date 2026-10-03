@@ -74,6 +74,66 @@ OFFICIAL_ROOT = Path(
 )
 OFFICIAL_LOGS = Path("/scratch/zli11010/appworld/logs_official_react_20260828T030427Z")
 
+#: The run-stamp of the one batch of that arm this suite published. `release_traces.py` packs exactly
+#: that batch, and `official_paths` uses it to tell that batch from anyone else's. Readers otherwise
+#: DISCOVER the stamp (`_official_evaluation`), because a reader's own reps carry whatever `date -u`
+#: said when they ran them.
+OFFICIAL_STAMP = "20260828T030427Z"
+
+#: Where `release_traces.py` puts that batch inside the published archive. Checked BEFORE the two
+#: absolute paths above, so unpacking the archive and pointing `--runs-root` at it recomputes this
+#: row with no extra flag. The absolute paths stay as the second place to look because they are
+#: where the batch was actually produced, and this file is still run on that machine.
+OFFICIAL_RELPATH = Path("runs/appworld/official_react")
+
+
+def resolve_official(runs_root: Path) -> tuple[Path, Path]:
+    """The official baseline's root and cost-log directory: the archived copy, else where it was run."""
+    archived = runs_root / OFFICIAL_RELPATH
+    if _official_evaluation(archived, 1) is not None:
+        return archived, archived / "logs"
+    return OFFICIAL_ROOT, OFFICIAL_LOGS
+
+
+def official_paths(
+    runs_root: Path, official_root: Path | None, official_logs: Path | None
+) -> tuple[Path, Path, bool]:
+    """Resolve the official baseline's root and cost logs. Returns `(root, logs, ours)`.
+
+    `ours` is True when both point at the batch this suite produced -- where it was run, or its copy
+    inside the published archive -- and False for anyone else's runs.
+    """
+    # `ours` is decided by WHICH TREE is read, not by whether a flag was passed. The first version
+    # asked the latter, so pointing `--official-root` at the archive's own copy -- the pattern the
+    # archive README teaches for the figures -- read our reps and then quoted them +/-0.0, the
+    # precision this arm does not have. The same batch lives in exactly two places; anything else is
+    # someone's own run, which keeps the literal SEM.
+    archived = runs_root / OFFICIAL_RELPATH
+    if official_root is None:
+        official_root, default_logs = resolve_official(runs_root)
+    elif official_root.resolve() == OFFICIAL_ROOT.resolve():
+        default_logs = OFFICIAL_LOGS
+    else:
+        # Beside the root, as the archive lays it out. Falling back to OUR logs here would pair
+        # someone else's scores with this batch's cost -- a row that is half theirs and half ours,
+        # and looks entirely measured.
+        default_logs = official_root / "logs"
+    logs = official_logs if official_logs is not None else default_logs
+    ours_pairs = ((OFFICIAL_ROOT, OFFICIAL_LOGS), (archived, archived / "logs"))
+    ours = any(
+        official_root.resolve() == root.resolve() and logs.resolve() == log_dir.resolve()
+        for root, log_dir in ours_pairs
+    )
+    # The path alone is not enough, because the stamp is discovered: someone else's reps placed at
+    # the archive's path would resolve there and be read as ours. So the reps actually read must
+    # carry the published stamp too.
+    evaluations = [_official_evaluation(official_root, rep) for rep in (1, 2, 3)]
+    ours = ours and all(
+        e is not None and e.parent.parent.name.endswith(f"_{OFFICIAL_STAMP}") for e in evaluations
+    )
+    return official_root, logs, ours
+
+
 # Values recovered from the official harness's own evaluation JSON on 2026-09-03, kept so the table
 # still builds on a machine without the sibling checkout. Regenerate by running with the artifacts
 # present; `--check` compares against live artifacts when they exist.
@@ -582,12 +642,13 @@ def _header(
 % Sources, all globs relative to --runs-root, which for this build was:
 %   {runs_root_line(runs_root)}
 {_source_lines(manifest)}
-%   official baseline    NOT in this repo -- AppWorld's own experiment outputs under its DATA root.
-%                        Point --official-root at yours (and --official-logs at its per-rep run logs,
-%                        which carry the cost); absent, that row falls back to recorded constants and
-%                        the provenance block below says so. `runs/` is gitignored, so NONE of the
-%                        paths above survive a fresh clone either; they name the machine this was
-%                        built on, and the generator is what makes the table reproducible from them.
+%   official baseline    --official-root / --official-logs when given (the logs default to
+%                        <root>/logs); else runs/appworld/official_react/ under --runs-root, where the
+%                        published trace archive puts it; else this machine's absolute defaults.
+%                        Absent all of these, that row falls back to recorded constants and the
+%                        provenance block below says so. `runs/` is gitignored, so NONE of the paths
+%                        above survive a fresh clone either; they name the machine this was built on,
+%                        and the generator is what makes the table reproducible from them.
 %
 % How each column is computed:
 %   TGC       task goal completion: 100 * successes / 417, from the `success` field of each row in
@@ -721,9 +782,11 @@ def build(
     manifest: dict[str, list[str]],
     runs_root: Path,
     manifest_path: Path,
-    official_root: Path = OFFICIAL_ROOT,
-    official_logs: Path = OFFICIAL_LOGS,
+    official_root: Path | None = None,
+    official_logs: Path | None = None,
 ) -> str:
+    # `None` means "find it": the archived copy under `runs_root`, else the tree it was produced in.
+    official_root, official_logs, ours = official_paths(runs_root, official_root, official_logs)
     _PRECOMPUTED_META.clear()
     labels: list[str] = []
     prompt_only: list[str] = []
@@ -772,7 +835,9 @@ def build(
     # our uncertainty -- the "looks measured and is half borrowed" shape `appworld_points` warns about
     # on the other side of this same row. A redirected `--official-root`/`--official-logs` therefore
     # keeps the literal SEM over whatever reps it found.
-    ours = official_root == OFFICIAL_ROOT and official_logs == OFFICIAL_LOGS
+    # `ours` comes from `official_paths`, which asks which tree was read: our batch is readable from
+    # where it was produced and from its copy in the published archive, and both get the quadrature
+    # figure.
     if ours:
         for i, arm in enumerate(ARMS):
             if not arm.key:
@@ -808,8 +873,11 @@ def _rerun(args: argparse.Namespace) -> str:
             "--runs-manifest": DEFAULT_MANIFEST,
             "--runs-root": REPO,
             "--out": OUT,
-            "--official-root": OFFICIAL_ROOT,
-            "--official-logs": OFFICIAL_LOGS,
+            # `None`, not the constants: these flags now default to "resolve from --runs-root",
+            # so printing them whenever they differ from a hardcoded path would stamp this one
+            # machine's absolute paths into every rebuild command a reader is handed.
+            "--official-root": None,
+            "--official-logs": None,
         },
     )
 
@@ -840,16 +908,19 @@ def main() -> int:
     parser.add_argument(
         "--official-root",
         type=Path,
-        default=OFFICIAL_ROOT,
-        help="AppWorld's experiment-output root for the official ReAct baseline "
-        "(default: the path these runs were produced at; the row falls back to recorded "
-        "values when it is absent)",
+        default=None,
+        help="AppWorld's experiment-output root for the official ReAct baseline (default: "
+        "`runs/appworld/official_react` under --runs-root if present -- which is where the "
+        "published archive puts it -- else the path these runs were produced at; the row falls "
+        "back to recorded values when neither is there)",
     )
     parser.add_argument(
         "--official-logs",
         type=Path,
-        default=OFFICIAL_LOGS,
-        help="directory of that baseline's per-rep run logs, which carry its cost",
+        default=None,
+        help="directory of that baseline's per-rep run logs, which carry its cost (default: "
+        "`logs/` beside --official-root, as the archive lays it out; when --official-root is also "
+        "unset, the logs that go with whichever tree was found)",
     )
     args = parser.parse_args()
     manifest = load_manifest(args.runs_manifest)
