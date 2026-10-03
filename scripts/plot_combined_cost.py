@@ -56,9 +56,11 @@ from typing import TYPE_CHECKING, Any
 sys.path.append(str(Path(__file__).resolve().parent))
 
 import build_appworld_table as bt
+import build_stulife_table as bs
 import plot_appworld_curves as aw
 import plot_stulife_far_recall_curves as sl
 from _artifacts import (
+    choose_sem,
     display,
     load_manifest,
     report_pdf_check,
@@ -95,17 +97,20 @@ if TYPE_CHECKING:
 
 OUT = REPO / "tables" / "combined_cost.pdf"
 
-# The official AppWorld baseline's cost uncertainty. Imported rather than restated for the same reason
-# its mean is: one definition, so this figure and the results table cannot disagree about that row.
-# `build_appworld_table.OFFICIAL_COST_SEM` carries why it is not the SEM over that arm's three reps.
-OFFICIAL_COST_SEM = bt.OFFICIAL_COST_SEM
+
+def _apply_rule(point: Point, paired: dict[str, float], score_column: str) -> None:
+    """Give a per-task baseline's point the SEMs its table row reports, by the same rule.
+
+    Both axes, because both mirror a table column: cost on x, and on y the pass rate the panel plots
+    (`score_column`). The figure and the tables compute these by the same rule, so an error bar here
+    cannot disagree with the SEM its table row prints, on either axis.
+    """
+    point.cost_sem = choose_sem(point.cost_sem, paired.get("cost"))
+    point.score_sem = choose_sem(point.score_sem, paired.get(score_column))
 
 
 class Point:
-    """One arm in one panel: mean cost and mean pass rate, each with its SEM.
-
-    `cost_sem` overrides the SEM computed over `costs`, for an arm whose reps do not carry it.
-    """
+    """One arm in one panel: mean cost and mean pass rate, each with its SEM."""
 
     def __init__(
         self,
@@ -114,7 +119,6 @@ class Point:
         costs: list[float],
         score: float,
         score_sem: float,
-        cost_sem: float | None = None,
         linestyle: str = "-",
     ) -> None:
         self.label = label
@@ -124,8 +128,7 @@ class Point:
         self.linestyle = linestyle
         # Cost is the only raw sample here; the score arrives already summarised, because it is
         # taken from the curve figures' own series rather than recomputed.
-        self.cost, computed = mean_sem(costs)
-        self.cost_sem = computed if cost_sem is None else cost_sem
+        self.cost, self.cost_sem = mean_sem(costs)
         self.score = score
         self.score_sem = score_sem
         self.n = len(costs)
@@ -148,11 +151,16 @@ def stulife_points(
     arms: Sequence[tuple[str, str, str, str]] = sl.ARMS,
 ) -> list[Point]:
     costs: dict[str, list[float]] = {}
+    paired: dict[str, dict[str, float]] = {}
+    table_arms = {arm.key: arm for arm in bs.ARMS}
     for label, key, _colour, _ls in arms:
         run = sl.resolve_run(key, sl_manifest, runs_root)
         if run is None:
             continue
         costs[label] = [c for a in sorted(run.glob("attempt-*")) if (c := _run_cost(a)) is not None]
+        table_arm = table_arms.get(key)
+        if table_arm is not None and table_arm.per_task:
+            paired[label] = bs.per_task_sems(bs.per_task_values(table_arm, sl_manifest, runs_root))
     points: list[Point] = []
     for s in pieces_series:
         if costs.get(s.label):
@@ -168,6 +176,9 @@ def stulife_points(
                     linestyle=s.linestyle,
                 )
             )
+            if s.label in paired:
+                # This panel plots far-recall pass rate, so that is the column whose SEM it mirrors.
+                _apply_rule(points[-1], paired[s.label], "far_pass")
     return points
 
 
@@ -180,17 +191,27 @@ def appworld_points(
     official_logs: Path = bt.OFFICIAL_LOGS,
 ) -> list[Point]:
     costs: dict[str, list[float]] = {}
-    official: set[str] = set()
+    paired: dict[str, dict[str, float]] = {}
+    table_arms = {arm.key: arm for arm in bt.ARMS}
     for label, key, _si, _colour, _ls in aw.ARMS if arms is None else arms:
+        table_arm = table_arms.get(key)
+        per_task = table_arm is not None and table_arm.per_task
         if not key:
             # The official baseline: recovered by the table generator, not a run record. Both roots
             # are threaded in rather than left to default, so `--official-root` redirects this arm's
             # COST as well as whether its point is drawn. Defaulting here silently paired a
             # reproducer's own pass rate with this repo's recorded fallback cost -- a point that
             # looks measured and is half borrowed.
-            costs[label] = bt._official(official_root, official_logs)[0]["cost"]
-            official.add(label)
+            official, _, official_cost_live = bt._official(official_root, official_logs)
+            if per_task:
+                values = bt.per_task_values(table_arm, aw_manifest, aw_runs_root, official_root)
+                paired[label] = bt.per_task_sems(values)
+                bt.with_recorded_cost_sem(paired[label], official_cost_live)
+            costs[label] = official["cost"]
             continue
+        if per_task:
+            values = bt.per_task_values(table_arm, aw_manifest, aw_runs_root, official_root)
+            paired[label] = bt.per_task_sems(values)
         runs = [r for pattern in aw_manifest.get(key, []) for r in sorted(aw_runs_root.glob(pattern))]
         costs[label] = [c for r in runs if (c := _run_cost(r / "attempt-0")) is not None]
     points: list[Point] = []
@@ -205,10 +226,11 @@ def appworld_points(
                     costs[s.label],
                     s.centre[0],
                     s.hi[0] - s.centre[0],
-                    cost_sem=OFFICIAL_COST_SEM if s.label in official else None,
                     linestyle=s.linestyle,
                 )
             )
+            if s.label in paired:
+                _apply_rule(points[-1], paired[s.label], "tgc")
     return points
 
 

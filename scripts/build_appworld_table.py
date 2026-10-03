@@ -51,10 +51,13 @@ sys.path.append(str(Path(__file__).resolve().parent))
 from _artifacts import (
     REPO,
     aggregate_marks,
+    apply_paired_sem,
     d1,
     describe_text_difference,
     display,
     load_manifest,
+    paired_sem,
+    paired_sem_note,
     rerun_command,
     runs_root_line,
 )
@@ -74,10 +77,9 @@ OFFICIAL_ROOT = Path(
 )
 OFFICIAL_LOGS = Path("/scratch/zli11010/appworld/logs_official_react_20260828T030427Z")
 
-#: The run-stamp of the one batch of that arm this suite published. `release_traces.py` packs exactly
-#: that batch, and `official_paths` uses it to tell that batch from anyone else's. Readers otherwise
-#: DISCOVER the stamp (`_official_evaluation`), because a reader's own reps carry whatever `date -u`
-#: said when they ran them.
+#: The run-stamp of the one batch of that arm this suite published. Only `release_traces.py` reads it,
+#: to pack exactly that batch. Every reader here DISCOVERS the stamp instead (`_official_evaluation`),
+#: because a reader's own reps carry whatever `date -u` said when they ran them.
 OFFICIAL_STAMP = "20260828T030427Z"
 
 #: Where `release_traces.py` puts that batch inside the published archive. Checked BEFORE the two
@@ -97,41 +99,18 @@ def resolve_official(runs_root: Path) -> tuple[Path, Path]:
 
 def official_paths(
     runs_root: Path, official_root: Path | None, official_logs: Path | None
-) -> tuple[Path, Path, bool]:
-    """Resolve the official baseline's root and cost logs. Returns `(root, logs, ours)`.
-
-    `ours` is True when both point at the batch this suite produced -- where it was run, or its copy
-    inside the published archive -- and False for anyone else's runs.
-    """
-    # `ours` is decided by WHICH TREE is read, not by whether a flag was passed. The first version
-    # asked the latter, so pointing `--official-root` at the archive's own copy -- the pattern the
-    # archive README teaches for the figures -- read our reps and then quoted them +/-0.0, the
-    # precision this arm does not have. The same batch lives in exactly two places; anything else is
-    # someone's own run, which keeps the literal SEM.
-    archived = runs_root / OFFICIAL_RELPATH
+) -> tuple[Path, Path]:
+    """Resolve the official baseline's root and cost-log directory. Returns `(root, logs)`."""
     if official_root is None:
         official_root, default_logs = resolve_official(runs_root)
     elif official_root.resolve() == OFFICIAL_ROOT.resolve():
         default_logs = OFFICIAL_LOGS
     else:
-        # Beside the root, as the archive lays it out. Falling back to OUR logs here would pair
-        # someone else's scores with this batch's cost -- a row that is half theirs and half ours,
-        # and looks entirely measured.
+        # Beside the root, as the archive lays it out. Falling back to OUR logs here would pair someone
+        # else's scores with this batch's cost -- a row that is half theirs and half ours, and looks
+        # entirely measured.
         default_logs = official_root / "logs"
-    logs = official_logs if official_logs is not None else default_logs
-    ours_pairs = ((OFFICIAL_ROOT, OFFICIAL_LOGS), (archived, archived / "logs"))
-    ours = any(
-        official_root.resolve() == root.resolve() and logs.resolve() == log_dir.resolve()
-        for root, log_dir in ours_pairs
-    )
-    # The path alone is not enough, because the stamp is discovered: someone else's reps placed at
-    # the archive's path would resolve there and be read as ours. So the reps actually read must
-    # carry the published stamp too.
-    evaluations = [_official_evaluation(official_root, rep) for rep in (1, 2, 3)]
-    ours = ours and all(
-        e is not None and e.parent.parent.name.endswith(f"_{OFFICIAL_STAMP}") for e in evaluations
-    )
-    return official_root, logs, ours
+    return official_root, official_logs if official_logs is not None else default_logs
 
 
 # Values recovered from the official harness's own evaluation JSON on 2026-09-03, kept so the table
@@ -143,18 +122,13 @@ OFFICIAL_FALLBACK = {
     "cost": [16.588626, 16.589859, 16.590883],
 }
 
-# WHAT TO PRINT FOR THAT ROW'S COST UNCERTAINTY. The SEM over its reps is either exactly $0.0 (from the
-# run logs, which record two decimals, so all three reps read $16.59) or $0.0007 (from `OFFICIAL_FALLBACK`,
-# which keeps six) -- and it prints as +/-0.0 either way, which draws the LEAST replicated arm as the most
-# precisely measured one. Only one batch of that arm ever completed, so three near-identical totals are
-# a cancellation whose replication is untestable. The honest figure is the paired per-task SEMs combined
-# in quadrature (sqrt(sum SEM_i^2) = $0.197), derived from that arm's own per-task records.
-#
-# Every table and figure quoting this arm's cost uses it, with ONE exception: the per-rep table below
-# keeps the literal SEM, because it prints the three totals the SEM was computed from and the paper's
-# caption for that table explains the difference (executive call, user, 2026-09-22). An earlier pass
-# made the opposite call -- the literal +/-0.0 everywhere, for internal consistency -- which left both
-# tables and the cost figure stating a precision the arm does not have.
+# The official baseline's cost SEM when its cost MEAN is the recorded one: with the cost logs absent the
+# row's cost comes from `OFFICIAL_FALLBACK`, and `with_recorded_cost_sem` puts this beside it so the mean
+# and its SEM share a source (the header says which records were missing). With the logs present this is
+# not read: the SEM is the paired one computed from the per-task `usage.json` records -- $0.1969 on the
+# published archive -- or, if those records are missing, the SEM over reps, which for these three
+# near-identical totals is ~$0.0. Derived once by hand from that arm's per-task records before they were
+# reachable here; the rule now reproduces it from the archive.
 OFFICIAL_COST_SEM = 0.20
 
 
@@ -167,6 +141,14 @@ class Arm(NamedTuple):
     meta_source: str  # "root_turns" | "ace_calls" | "none"
     prompt_only: str  # LaTeX for the aggregate table's prompt-only column
     self_improving: bool  # median row is emitted only for these (and only at n >= 6)
+
+    @property
+    def per_task(self) -> bool:
+        """Whether this arm starts every task fresh, so its per-task outcomes can be paired across reps."""
+        # The negation of `self_improving`, by the labelling convention ARMS documents: `(per task)` marks
+        # an arm that starts every task fresh, and the unmarked ones are exactly the self-improving arms.
+        # Derived rather than stored, so the two cannot disagree.
+        return not self.self_improving
 
 
 # THE LABELS ARE THE PAPER'S, VERBATIM (user, 2026-09-22) -- this generator writes the table the paper
@@ -383,6 +365,88 @@ def _official_evaluation(official_root: Path, rep: int) -> Path | None:
             + "\nkeep one, or point --official-root at a directory with a single run per rep"
         )
     return live[0]
+
+
+def _by_scenario(per_task: dict[str, list[float]]) -> dict[str, list[float]]:
+    """Per-scenario success in each rep -- a scenario passes only when every one of its tasks does."""
+    # The same grouping `_sgc` makes (`<scenario>_<n>` task ids), so the paired SGC SEM is over exactly
+    # the quantity the SGC column reports.
+    grouped: dict[str, list[list[float]]] = collections.defaultdict(list)
+    for task_id, values in per_task.items():
+        grouped[task_id.rsplit("_", 1)[0]].append(values)
+    return {
+        scenario: [1.0 if all(task[r] for task in tasks) else 0.0 for r in range(len(tasks[0]))]
+        for scenario, tasks in grouped.items()
+    }
+
+
+def per_task_values(
+    arm: Arm, manifest: dict[str, list[str]], runs_root: Path, official_root: Path
+) -> dict[str, dict[str, list[float]]]:
+    """A per-task baseline's values per task (and per scenario), one per rep, for the paired SEM.
+
+    Keys are `tgc` and `cost` (per task) and `sgc` (per scenario); a key is absent when its records
+    are. Empty for an arm that is not a per-task baseline, and for the official baseline when its
+    per-task records are not present.
+    """
+    success: dict[str, list[float]] = {}
+    cost: dict[str, list[float]] = {}
+    if not arm.per_task:
+        return {}
+    if not arm.key:
+        for rep in (1, 2, 3):
+            evaluation = _official_evaluation(official_root, rep)
+            if evaluation is None:
+                return {}
+            run = evaluation.parent.parent
+            for task_id, row in json.loads(evaluation.read_text())["individual"].items():
+                success.setdefault(task_id, []).append(1.0 if row["success"] else 0.0)
+                usage = run / "tasks" / task_id / "misc" / "usage.json"
+                if usage.is_file():
+                    cost.setdefault(task_id, []).append(sum(json.loads(usage.read_text())["cost"].values()))
+    else:
+        for pattern in manifest.get(arm.key, []):
+            for run in sorted(runs_root.glob(pattern)):
+                attempt = run / "attempt-0"
+                rows = _rows(attempt / "task_results.jsonl")
+                for row in rows:
+                    success.setdefault(row["task_id"], []).append(1.0 if row["success"] else 0.0)
+                # One trajectory per task, written in queue order beside `task_results.jsonl`; the
+                # per-task harness records each task's cost on its own trajectory and nowhere else.
+                # Matched by position, and only when the counts agree -- a short trace pairs nothing
+                # rather than pairing the wrong tasks.
+                trace = attempt / "agent.atif.json"
+                if trace.is_file():
+                    trajectories = json.loads(trace.read_text())
+                    if isinstance(trajectories, list) and len(trajectories) == len(rows):
+                        for row, trajectory in zip(rows, trajectories, strict=True):
+                            spent = (trajectory.get("final_metrics") or {}).get("total_cost_usd")
+                            if isinstance(spent, (int, float)):
+                                cost.setdefault(row["task_id"], []).append(float(spent))
+    values: dict[str, dict[str, list[float]]] = {}
+    # Pairing needs every task in every rep: a task some rep did not record would enter the sum with a
+    # spread computed from fewer reps than its neighbours, and `_by_scenario` reads rep r by position,
+    # so a short list would raise or pair one rep of a task with another rep of its neighbour.
+    reps = max((len(v) for v in success.values()), default=0)
+    if success and all(len(v) == reps for v in success.values()):
+        values["tgc"] = success
+        values["sgc"] = _by_scenario(success)
+    if "tgc" in values and cost and all(len(v) == reps for v in cost.values()) and len(cost) == len(success):
+        values["cost"] = cost
+    return values
+
+
+def per_task_sems(values: dict[str, dict[str, list[float]]]) -> dict[str, float]:
+    """The paired SEM of each column `values` covers, in that column's own units."""
+    sems: dict[str, float] = {}
+    for column in ("tgc", "sgc"):
+        if column in values:
+            sems[column] = paired_sem(values[column], scale=100, mean_over=len(values[column]))
+    if "cost" in values:
+        sems["cost"] = paired_sem(values["cost"])
+        # A per-task baseline has no meta loop (`meta_source` is "none"), so its Solver $ IS its cost.
+        sems["solver"] = sems["cost"]
+    return sems
 
 
 def _official(
@@ -615,12 +679,61 @@ def _source_lines(manifest: dict[str, list[str]]) -> str:
     return "\n".join(out)
 
 
+# Column names as the header prose spells them.
+_COLUMN_NAMES = {"tgc": "TGC", "sgc": "SGC", "cost": "Cost $", "meta": "Meta $", "solver": "Solver $"}
+
+
+def _apply_paired_sems(
+    sems: dict[str, list[float]],
+    manifest: dict[str, list[str]],
+    runs_root: Path,
+    official_root: Path,
+    official_cost_live: bool,
+) -> tuple[str, ...]:
+    """Apply the per-task SEM rule to the aggregate table's SEMs, in place. Returns what it changed.
+
+    The per-rep table is not touched: it prints each arm's rep values, and the SEM over exactly those
+    is the one it quotes (executive call, user, 2026-09-22).
+    """
+    changed: list[str] = []
+    for i, arm in enumerate(ARMS):
+        paired = per_task_sems(per_task_values(arm, manifest, runs_root, official_root))
+        source = "computed from per-task records"
+        had_cost_records = "cost" in paired
+        if not arm.key and with_recorded_cost_sem(paired, official_cost_live):
+            source = (
+                "recorded, like the cost mean beside it; cost logs absent"
+                if had_cost_records
+                else "recorded; per-task records absent"
+            )
+        changed += apply_paired_sem(sems, i, arm.short, paired, _COLUMN_NAMES, source)
+    return tuple(changed)
+
+
+def with_recorded_cost_sem(paired: dict[str, float], official_cost_live: bool) -> bool:
+    """Give the official baseline's paired SEMs the recorded cost SEM when its cost is the recorded one.
+
+    Mutates `paired` and returns whether it did. Exactly when the cost MEAN came from
+    `OFFICIAL_FALLBACK` (the cost logs were absent), so the mean and its SEM always share a source:
+    a SEM computed from a redirected root's per-task records beside our recorded mean would be a row
+    that looks measured and is half borrowed. The caller labels which way it got here -- per-task
+    records absent, or present but the logs not -- so the header never calls the records absent when
+    they were not. A root whose cost logs are live has its own cost, and keeps its computed paired SEM,
+    or the SEM over its reps when its per-task records are missing.
+    """
+    if official_cost_live:
+        return False
+    paired.update(cost=OFFICIAL_COST_SEM, solver=OFFICIAL_COST_SEM)
+    return True
+
+
 def _header(
     prov_by_arm: dict[str, list[dict[str, str]]],
     official_live: bool,
     manifest: dict[str, list[str]],
     runs_root: Path,
     official_cost_live: bool = True,
+    paired_cells: tuple[str, ...] = (),
 ) -> str:
     return f"""% AppWorld (test_challenge, 417 tasks, seed 42) results.
 %
@@ -688,16 +801,7 @@ def _header(
 {_provenance_block(prov_by_arm, official_live, official_cost_live)}
 %
 % OTHER CAVEATS
-%   - THE TWO TABLES REPORT DIFFERENT UNCERTAINTIES FOR THE OFFICIAL BASELINE'S COST, on purpose. Its
-%     cost is $16.59 in all three reps (true totals $16.588626 / $16.589859 / $16.590883), so the SEM
-%     over reps is $0.0 as computed here, from two-decimal log values ($0.0007 from the six-decimal
-%     recorded fallback). The aggregate table prints +/-0.2 instead -- the paired per-task SEMs
-%     combined in quadrature (sqrt(sum SEM_i^2) = $0.197) --
-%     because three near-identical totals from the one batch of that arm that completed are a
-%     cancellation whose replication is untestable, and +/-0.0 draws the least replicated arm as the
-%     most precisely measured one. The per-rep table keeps +/-0.0: it prints the three totals that SEM
-%     was computed from, and the paper's caption for that table explains the difference. Every other
-%     table and figure quoting this arm's cost uses +/-0.20 (see `OFFICIAL_COST_SEM`).
+{paired_sem_note(paired_cells, "%   - ", "%     ")}
 %   - Not every run is error-free, though every one graded all 417 tasks: CodeAct reps 1 and 2 recorded
 %     IterationLimitExhaustedError (x1 and x2), and CodeAct rep 2 and ACE rep 4 each recorded
 %     submit_errors: 1. grader_errors is 0 in all 21 runs, so the measurements stand.
@@ -786,7 +890,7 @@ def build(
     official_logs: Path | None = None,
 ) -> str:
     # `None` means "find it": the archived copy under `runs_root`, else the tree it was produced in.
-    official_root, official_logs, ours = official_paths(runs_root, official_root, official_logs)
+    official_root, official_logs = official_paths(runs_root, official_root, official_logs)
     _PRECOMPUTED_META.clear()
     labels: list[str] = []
     prompt_only: list[str] = []
@@ -826,31 +930,15 @@ def build(
         c: [st.stdev(d[c]) / math.sqrt(len(d[c])) if not math.isnan(d[c][0]) else math.nan for d in per_arm]
         for c in COLUMNS
     }
-    # See `OFFICIAL_COST_SEM`: the quadrature figure replaces the SEM over reps for the official
-    # baseline's two money columns (`meta` is `---` for it, so `solver` carries the same total as
-    # `cost`). The aggregate table only -- `_per_rep_table` computes its own SEMs from `per_arm`.
-    #
-    # ONLY for THESE runs. $0.197 was derived from this one batch's per-task pairing; it is not a
-    # property of the arm, so stamping it onto a reproducer's own costs would print their mean beside
-    # our uncertainty -- the "looks measured and is half borrowed" shape `appworld_points` warns about
-    # on the other side of this same row. A redirected `--official-root`/`--official-logs` therefore
-    # keeps the literal SEM over whatever reps it found.
-    # `ours` comes from `official_paths`, which asks which tree was read: our batch is readable from
-    # where it was produced and from its copy in the published archive, and both get the quadrature
-    # figure.
-    if ours:
-        for i, arm in enumerate(ARMS):
-            if not arm.key:
-                for c in ("cost", "solver"):
-                    if not math.isnan(sems[c][i]):
-                        sems[c][i] = OFFICIAL_COST_SEM
+    paired_cells = _apply_paired_sems(sems, manifest, runs_root, official_root, official_cost_live)
     return "\n".join(
         [
-            _header(prov_by_arm, official_live, manifest, runs_root, official_cost_live),
+            _header(prov_by_arm, official_live, manifest, runs_root, official_cost_live, paired_cells),
             "",
             "% " + "-" * 73,
-            "% Aggregate: mean +/- SEM over reps, except the official baseline's two money",
-            "% columns -- see OTHER CAVEATS above for why that one row quotes +/-0.20 instead.",
+            "% Aggregate: mean +/- SEM over reps"
+            + (", except the cells OTHER CAVEATS lists, which quote a paired" if paired_cells else "."),
+            *(["% per-task SEM because their SEM over reps is implausibly small."] if paired_cells else []),
             "% " + "-" * 73,
             _aggregate_table(labels, prompt_only, stats, sems),
             "",
