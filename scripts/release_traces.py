@@ -60,9 +60,11 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import IO
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from _artifacts import REPO, display, load_manifest
@@ -81,9 +83,30 @@ PASSPHRASE = "jaz-evals-traces"
 #: the community that asked for it -- and `openssl` is the only thing a reader needs to undo it.
 _CIPHER = ("-aes-256-cbc", "-pbkdf2", "-iter", "100000", "-salt")
 
-#: The only `--out` suffix the generated decrypt command can be written for: one strip gives the
-#: compressed tar, two give the tar.
+
+#: The `--out` suffix the README's decrypt pipeline is written for: an encrypted (`.enc`) zstd
+#: (`.zst`) tar, which is exactly what that command undoes.
 _SUFFIX = ".tar.zst.enc"
+
+
+def pack(staging: Path, out: IO[bytes]) -> None:
+    """Write `staging` to `out` as an uncompressed tar stream that unpacks AS its contents.
+
+    Written with `tarfile` rather than the system `tar`, so the archive is the same wherever it is
+    built. macOS's bsdtar packs every file's extended attributes -- as `._*` AppleDouble sidecars, or
+    with `COPYFILE_DISABLE=1` as pax headers -- and recent macOS stamps `com.apple.provenance` on
+    nearly every file; and every tar records the builder's account name and ids in each header, which
+    the reviewer copy must not carry. `tarfile` writes no attributes, and the filter blanks ownership.
+    Members are added in sorted order, and as `./...` so the archive unpacks as `runs/`.
+    """
+
+    def scrub(info: tarfile.TarInfo) -> tarfile.TarInfo:
+        info.uid = info.gid = 0
+        info.uname = info.gname = ""
+        return info
+
+    with tarfile.open(fileobj=out, mode="w|", format=tarfile.PAX_FORMAT) as tar:
+        tar.add(staging, arcname=".", filter=scrub)
 
 
 # Where the official ReAct baseline lands inside the archive: its own subtree in AppWorld's own
@@ -258,21 +281,32 @@ With this subtree the AppWorld table recomputes that row from these artifacts ra
 recorded constants, and `build_appworld_table.py` finds it under `--runs-root` with no extra flag."""
 
 
-def readme(attempts: int, arms: int, passphrase: str, name: str, official_reps: int) -> str:
+def readme(
+    attempts: int,
+    arms: int,
+    passphrase: str,
+    name: str,
+    official_reps: int,
+    unpacked_bytes: int | None = None,
+) -> str:
     """The archive's own front page: how to open it, how to cite it, what is inside."""
     # Every substituted value is shell-quoted and every count is derived, because this text is the
     # only instruction a downloader gets. A hardcoded filename is wrong for any `--out` the operator
     # chooses; a hand-rolled quote breaks on a name or passphrase containing a space or an
     # apostrophe; and a hand-counted arm total drifts the first time the manifests change.
     #
-    # `--out` is required to end `.tar.zst.enc` (`main` rejects anything else), so the two stems are
-    # a suffix strip rather than a guess. Guessing was wrong: `--out x.enc` used to emit
-    # `zstd -d x && tar xf x`, which zstd refuses outright -- unknown suffix -- and which would have
-    # been reading the still-compressed file even if it had not.
+    # Decryption is ONE pipeline rather than decrypt-to-file, then `zstd -d`, then `tar xf`. The
+    # stepwise form holds the compressed tar, the plain tar and the unpacked tree on disk at once --
+    # over 30 GB at peak for a ~16 GB tree -- and a reader who runs out of space halfway has no way to
+    # have known. The unpacked size is stated for the same reason.
     quoted = shlex.quote(passphrase)
-    tar_zst = shlex.quote(name[: -len(".enc")])
-    tar = shlex.quote(name[: -len(".zst.enc")])
     name = shlex.quote(name)
+    size = (
+        f"\n\nUnpacked, the traces take about {unpacked_bytes / 1e9:.1f} GB. The pipeline writes"
+        " nothing but the\nunpacked tree, so that is all the free space it needs."
+        if unpacked_bytes
+        else ""
+    )
     # The official baseline changes three passages, and every one of them is wrong for the other kind
     # of build: a `--no-official` archive that described `runs/appworld/official_react/` would send a
     # reader looking for a directory it does not contain, and an archive WITH it that still said the
@@ -285,22 +319,32 @@ def readme(attempts: int, arms: int, passphrase: str, name: str, official_reps: 
         else "(The paper reports a tenth arm, AppWorld's own ReAct baseline, which this\n"
         "build does not include -- see the last section.)"
     )
+    # `attempts` counts the manifest arms' run directories only, and `arms` includes the official
+    # baseline when it ships; so the count names the harness arms and that baseline's reps apart,
+    # rather than putting 36 attempts beside 10 arms when one of the ten contributes none of them.
+    count = (
+        f"{attempts} attempts across the\n{arms - 1} arms run through this harness, plus the official"
+        f" AppWorld baseline's {official_reps} reps ({arms} arms in all)"
+        if included
+        else f"{attempts} attempts across\n{arms} arms"
+    )
     figures = _FIGURES_WITH_OFFICIAL if included else _FIGURES_WITHOUT_OFFICIAL
-    # `attempts` counts the manifest arms' run directories only; the official baseline is not one, so
-    # its reps are named separately rather than silently missing from the total.
-    reps_note = f" (plus the official baseline's {official_reps} reps)" if included else ""
     official = _official_section(OFFICIAL_STAMP) if included else _NO_OFFICIAL_SECTION
     return f"""# Raw agent traces
 
-The full transcripts behind the paper's results: {attempts} attempts across {arms} arms on two
-benchmarks{reps_note}, byte for byte as recorded. Every file here is identical to what the run wrote; nothing is
-rewritten or redacted. {headline}
+The full transcripts behind the paper's results, on two benchmarks: {count}.
+
+They are byte for byte as recorded. Every file here is identical to what the run wrote; nothing
+is rewritten or redacted.
+{headline}
 
 ## Decrypting
 
     openssl enc -d {" ".join(_CIPHER)} \\
-        -in {name} -out {tar_zst} -pass pass:{quoted}
-    zstd -d {tar_zst} && tar xf {tar}
+        -in {name} -pass pass:{quoted} | zstd -dc | tar xf -{size}
+
+If `runs/` does not appear, check the download against its `.sha256` file, and the passphrase: with
+a wrong one the pipeline prints `bad decrypt` but, depending on the `tar`, can still exit 0.
 
 The passphrase is published on purpose: it is here so the archive can be read, and the archive is
 encrypted so its contents are not swept into a training corpus by a crawler that never intended to.
@@ -338,6 +382,13 @@ read. Take successive differences, or take the last row. Every other token field
 the attempt's own `results.json` totals, are correct as recorded -- `results.json` reports the true
 144,481,792. The harness has since been changed to record this per-step like its neighbours, so a
 trace produced by today's code does not need this treatment; these do.
+
+**In the CodeAct arms, the first prompt a trace shows is not the one the model saw.** These arms (run
+directories with `codeact` in the name) use a hook that removes what a CodeAct agent does not get, the
+`__history__` section among it, before the model is queried. Each trace records the prompt as
+composed and then the hook's edit: a *Hook edits* block in `trace.md`, an `edits` entry in the ATIF
+step's `extra`, and `message dropped`/`message added` lines in `agent.log`. The edited prompt is the
+one the model received; a `__history__` section above it was never shown to the agent.
 
 ## Rebuilding the paper's tables and figures from this tree
 
@@ -419,9 +470,9 @@ def main() -> int:
         "--level", type=int, default=19, help="zstd level (default 19; traces compress to ~5%%)"
     )
     args = parser.parse_args()
-    # Checked before any work, because the archive's README derives its decrypt command by stripping
-    # this suffix. A name it cannot strip would ship a command that does not run -- and the README is
-    # the only instruction a downloader gets, so there is nowhere for them to find the right one.
+    # Checked before any work: the README's command decrypts, zstd-decompresses and untars the named
+    # file, so a name that does not say it is an encrypted zstd tar misdescribes the one file a
+    # downloader has -- and the README is the only instruction they get.
     if not args.out.name.endswith(_SUFFIX):
         raise SystemExit(f"--out must name a file ending {_SUFFIX}, got {args.out.name!r}")
 
@@ -438,12 +489,18 @@ def main() -> int:
             if args.no_official
             else collect_official(staging, args.official_root, args.official_logs, OFFICIAL_STAMP)
         )
+        unpacked_bytes = sum(p.stat().st_size for p in staging.rglob("*") if p.is_file())
         # The official baseline is an arm of the paper but not of the manifests, so it is counted
         # here rather than derived -- the manifests drive which `runs/` directories ship and this
         # tree is not one of them.
         (staging / "README.md").write_text(
             readme(
-                attempts, arms + (1 if official_reps else 0), args.passphrase, args.out.name, official_reps
+                attempts,
+                arms + (1 if official_reps else 0),
+                args.passphrase,
+                args.out.name,
+                official_reps,
+                unpacked_bytes,
             )
         )
 
@@ -457,7 +514,7 @@ def main() -> int:
         checksums = args.out.with_name(args.out.name + ".sha256")
         # Checked before anything is written, so a missing tool is a message rather than a wrecked
         # destination.
-        for tool in ("tar", "zstd", "openssl"):
+        for tool in ("zstd", "openssl"):
             if shutil.which(tool) is None:
                 raise SystemExit(f"{tool} is not on PATH; it is needed to build the archive")
         try:
@@ -466,16 +523,13 @@ def main() -> int:
             # rather than staged through files: the plaintext tar is ~8 GB, and writing it to disk
             # to read it straight back costs that twice over.
             #
-            # `-C staging` with `.` as the member, not the directory itself: the archive must unpack
-            # AS `runs/`, which is where the generators look by default. Packing the wrapper gave
-            # `traces/runs/...` and a reader had to `cd` before anything worked.
-            tar = subprocess.Popen(["tar", "-C", str(staging), "-cf", "-", "."], stdout=subprocess.PIPE)
-            assert tar.stdout is not None
+            # The members are `./...`, not the staging directory itself (see `pack`): the archive must
+            # unpack AS `runs/`, which is where the generators look by default. Packing the wrapper
+            # gave `traces/runs/...` and a reader had to `cd` before anything worked.
             zstd = subprocess.Popen(
-                ["zstd", "-q", f"-{args.level}", "-T0", "-c"], stdin=tar.stdout, stdout=subprocess.PIPE
+                ["zstd", "-q", f"-{args.level}", "-T0", "-c"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
             )
-            tar.stdout.close()
-            assert zstd.stdout is not None
+            assert zstd.stdin is not None and zstd.stdout is not None
             with partial.open("wb") as out:
                 enc = subprocess.Popen(
                     ["openssl", "enc", *_CIPHER, "-pass", f"pass:{args.passphrase}"],
@@ -483,11 +537,19 @@ def main() -> int:
                     stdout=out,
                 )
                 zstd.stdout.close()
+                # A downstream failure closes the pipe under `pack`; the exit codes below then name
+                # the stage that actually failed, rather than this broken pipe.
+                try:
+                    pack(staging, zstd.stdin)
+                except BrokenPipeError:
+                    pass
+                finally:
+                    zstd.stdin.close()
                 enc.wait()
             # Tail first. A failure downstream closes the pipe and kills its feeders with SIGPIPE, so
-            # checking `tar` first reports the victim rather than the cause -- an openssl exit of 3
-            # was being announced as "zstd failed with exit -13".
-            for name, proc in (("openssl", enc), ("zstd", zstd), ("tar", tar)):
+            # checking the head first reports the victim rather than the cause -- an openssl exit of 3
+            # was once announced as "zstd failed with exit -13".
+            for name, proc in (("openssl", enc), ("zstd", zstd)):
                 code = proc.wait()
                 if code != 0:
                     how = f"signal {-code}" if code < 0 else f"exit {code}"
