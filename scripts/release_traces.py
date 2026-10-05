@@ -67,6 +67,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent))
 from _artifacts import REPO, display, load_manifest
 from build_appworld_table import DEFAULT_MANIFEST as APPWORLD_MANIFEST
+from build_appworld_table import OFFICIAL_LOGS, OFFICIAL_RELPATH, OFFICIAL_ROOT, OFFICIAL_STAMP
 from build_stulife_table import DEFAULT_MANIFEST as STULIFE_MANIFEST
 
 #: The published passphrase. A secret one would defeat the purpose -- the archive is meant to be read
@@ -83,6 +84,60 @@ _CIPHER = ("-aes-256-cbc", "-pbkdf2", "-iter", "100000", "-salt")
 #: The only `--out` suffix the generated decrypt command can be written for: one strip gives the
 #: compressed tar, two give the tar.
 _SUFFIX = ".tar.zst.enc"
+
+
+# Where the official ReAct baseline lands inside the archive: its own subtree in AppWorld's own
+# layout, rather than beside the harness arms pretending to be a `runs/` directory. Imported rather
+# than restated, because `build_appworld_table.resolve_official` looks for it at exactly this path --
+# two spellings of one location is how the table would quietly stop finding the archived copy and
+# fall back to recorded constants.
+OFFICIAL_DEST = OFFICIAL_RELPATH
+
+#: Omitted from that baseline, and the only place this archive is a filtered copy rather than a
+#: complete one. `dbs/` is the AppWorld simulator's per-task SQLite state and `checkpoints/` its
+#: restore points: together about 3.5 GB of the 3.8 GB, they are the environment's internals rather
+#: than any record of what the agent did. Everything that evidences behaviour or produces a reported
+#: number -- the per-task transcripts, the per-task and aggregate evaluations, the per-rep cost logs
+#: -- is copied verbatim. The README says so in as many words, because "raw" is a claim this archive
+#: makes everywhere else and a reader must not have to diff a tree to discover the exception.
+OFFICIAL_EXCLUDE = frozenset({"dbs", "checkpoints"})
+
+
+def collect_official(staging: Path, root: Path, logs: Path, stamp: str) -> int:
+    """Copy the official ReAct baseline's three reps into `staging`. Returns the reps copied.
+
+    Raises:
+        SystemExit: a rep's directory or its cost log is missing, so the arm would ship incomplete.
+    """
+    # Checked per rep rather than once, and fatal rather than skipped. This arm was absent from the
+    # first release precisely because nothing noticed it was absent: the manifests drive `collect`,
+    # this tree is not in them, and a missing-but-silent arm is how a published artifact ends up
+    # unable to support one of its own rows.
+    reps = 0
+    for rep in (1, 2, 3):
+        src = root / f"test_challenge_rep{rep}_{stamp}"
+        if not src.is_dir():
+            raise SystemExit(
+                f"official baseline rep{rep} not found at {display(src)}\n"
+                "pass --official-root at AppWorld's experiment-output root for that batch, "
+                "or --no-official to build an archive without this arm"
+            )
+        log = logs / f"rep{rep}.log"
+        if not log.is_file():
+            raise SystemExit(
+                f"official baseline rep{rep} has no cost log at {display(log)}\n"
+                "its cost column is read from these logs; pass --official-logs or --no-official"
+            )
+        for path in sorted(src.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(src)
+            if OFFICIAL_EXCLUDE & set(rel.parts):
+                continue
+            _copy(path, staging / OFFICIAL_DEST / src.name / rel)
+        _copy(log, staging / OFFICIAL_DEST / "logs" / log.name)
+        reps += 1
+    return reps
 
 
 def _copy(src: Path, dest: Path) -> None:
@@ -131,7 +186,79 @@ def collect(staging: Path, runs_roots: Sequence[Path]) -> int:
     return attempts
 
 
-def readme(attempts: int, arms: int, passphrase: str, name: str) -> str:
+_FIGURES_WITH_OFFICIAL = """\
+The five figure generators additionally need matplotlib and seaborn, which the repository installs as
+an extra -- so run these through `uv` rather than a bare interpreter, or they will not see it. The
+three that draw AppWorld's official baseline are pointed at its subtree:
+
+    OFFICIAL="$DIR/runs/appworld/official_react"
+    uv run --extra plots python scripts/plot_stulife_curves.py --check --runs-root "$DIR"
+    uv run --extra plots python scripts/plot_stulife_far_recall_curves.py --check --runs-root "$DIR"
+    uv run --extra plots python scripts/plot_appworld_curves.py --check --runs-root "$DIR" \\
+        --official-root "$OFFICIAL"
+    uv run --extra plots python scripts/plot_combined_curves.py --check --runs-root "$DIR" \\
+        --appworld-runs-root "$DIR" --official-root "$OFFICIAL"
+    uv run --extra plots python scripts/plot_combined_cost.py --check --runs-root "$DIR" \\
+        --appworld-runs-root "$DIR" --official-root "$OFFICIAL" --official-logs "$OFFICIAL/logs"
+
+All five rebuild exactly, and report `is up to date` for every figure they write."""
+
+_FIGURES_WITHOUT_OFFICIAL = """\
+The five figure generators additionally need matplotlib and seaborn, which the repository installs as
+an extra -- so run these through `uv` rather than a bare interpreter, or they will not see it:
+
+    uv run --extra plots python scripts/plot_stulife_curves.py --check --runs-root "$DIR"
+    uv run --extra plots python scripts/plot_stulife_far_recall_curves.py --check --runs-root "$DIR"
+    uv run --extra plots python scripts/plot_appworld_curves.py --check --runs-root "$DIR"
+    uv run --extra plots python scripts/plot_combined_curves.py --check --runs-root "$DIR" \\
+        --appworld-runs-root "$DIR"
+    uv run --extra plots python scripts/plot_combined_cost.py --check --runs-root "$DIR" \\
+        --appworld-runs-root "$DIR"
+
+The two StuLife generators rebuild exactly and report `is up to date` for all five of their PDFs. The
+other three will report `Figure CONTENT differs`, and that is expected too, for the one reason this
+archive cannot fix."""
+
+_NO_OFFICIAL_SECTION = """\
+**The one arm that is not in here.** AppWorld's own ReAct baseline was run through AppWorld's harness
+rather than ours, and this archive was built without it. The AppWorld *table* reproduces anyway --
+that row falls back to constants recorded from the original run, and the table's header says so. The
+three *figures* that draw it (`appworld_curves_*`, `combined_curves`, `combined_cost`) instead omit
+the line when its artifacts are absent, so what they rebuild really is a different picture, and
+`--check` is right to say so. Pass `--official-root` at an AppWorld experiment output directory of
+your own to draw that line."""
+
+
+def _official_section(stamp: str) -> str:
+    """The README's account of the official baseline's subtree, for a build that includes it."""
+    # The layout is spelled out in full, down to the per-task `misc/` and `version/` directories,
+    # because this subtree is the one place the archive is filtered: a reader deciding whether what
+    # is missing matters needs to know exactly what is present, not a representative sample of it.
+    return f"""\
+**The official baseline, and the one place this archive is filtered.** AppWorld's own ReAct baseline
+was run through AppWorld's harness rather than ours, so it is not a `runs/` directory and does not
+look like the other arms. It is under `runs/appworld/official_react/`, in AppWorld's own layout:
+three reps named `test_challenge_rep{{1,2,3}}_{stamp}`, each holding
+
+- `configs/` -- the run's own configuration (`test_challenge.json`, `test_challenge.jsonnet`);
+- `evaluations/` -- `test_challenge.json`, whose `individual` block is what that row's scores are
+  computed from, and its text rendering `test_challenge.txt`;
+- `tasks/<task_id>/`, one per task, holding `logs/` (the transcript: `lm_calls.jsonl`,
+  `api_calls.jsonl`, `environment_io.md`, `logger.jsonl`, `logger.log`), `evaluation/` (that task's
+  grading), `misc/` (`usage.json` and a `finished` marker) and `version/` (`code.txt`, `data.txt`).
+
+The per-rep cost logs are beside the reps, in `runs/appworld/official_react/logs/rep{{1,2,3}}.log`.
+
+Two directories AppWorld writes per task are **omitted**: `dbs/` (the simulator's SQLite state) and
+`checkpoints/` (its restore points). They are about 3.5 GB of that arm's 3.8 GB and hold the
+environment's internals, not any record of what the agent did -- no reported number reads them. Every
+file that is here is byte-identical; this subtree is simply not the whole of what AppWorld wrote.
+
+With this subtree the AppWorld table recomputes that row from these artifacts rather than from
+recorded constants, and `build_appworld_table.py` finds it under `--runs-root` with no extra flag."""
+
+
+def readme(attempts: int, arms: int, passphrase: str, name: str, official_reps: int) -> str:
     """The archive's own front page: how to open it, how to cite it, what is inside."""
     # Every substituted value is shell-quoted and every count is derived, because this text is the
     # only instruction a downloader gets. A hardcoded filename is wrong for any `--out` the operator
@@ -146,12 +273,28 @@ def readme(attempts: int, arms: int, passphrase: str, name: str) -> str:
     tar_zst = shlex.quote(name[: -len(".enc")])
     tar = shlex.quote(name[: -len(".zst.enc")])
     name = shlex.quote(name)
+    # The official baseline changes three passages, and every one of them is wrong for the other kind
+    # of build: a `--no-official` archive that described `runs/appworld/official_react/` would send a
+    # reader looking for a directory it does not contain, and an archive WITH it that still said the
+    # AppWorld figures cannot be rebuilt would be understating its own contents.
+    included = official_reps > 0
+    headline = (
+        "One subtree is a filtered copy rather than a complete one, and it is the\n"
+        "official baseline -- see the last section."
+        if included
+        else "(The paper reports a tenth arm, AppWorld's own ReAct baseline, which this\n"
+        "build does not include -- see the last section.)"
+    )
+    figures = _FIGURES_WITH_OFFICIAL if included else _FIGURES_WITHOUT_OFFICIAL
+    # `attempts` counts the manifest arms' run directories only; the official baseline is not one, so
+    # its reps are named separately rather than silently missing from the total.
+    reps_note = f" (plus the official baseline's {official_reps} reps)" if included else ""
+    official = _official_section(OFFICIAL_STAMP) if included else _NO_OFFICIAL_SECTION
     return f"""# Raw agent traces
 
-The full transcripts behind the paper's results: {attempts} attempts across the {arms} arms that are
-computed from run artifacts, on two benchmarks, byte for byte as recorded: nothing is filtered,
-rewritten or redacted. (The paper reports a tenth arm, AppWorld's own ReAct baseline, which was run
-through AppWorld's harness rather than ours -- see the last section.)
+The full transcripts behind the paper's results: {attempts} attempts across {arms} arms on two
+benchmarks{reps_note}, byte for byte as recorded. Every file here is identical to what the run wrote; nothing is
+rewritten or redacted. {headline}
 
 ## Decrypting
 
@@ -224,27 +367,9 @@ The header records the absolute `--runs-root` a build was given, which is your p
 the tables themselves match line for line. Nothing needs rebuilding, and the `Rebuild with:` line can
 be ignored.
 
-The five figure generators additionally need matplotlib and seaborn, which the repository installs as
-an extra -- so run these through `uv` rather than a bare interpreter, or they will not see it:
+{figures}
 
-    uv run --extra plots python scripts/plot_stulife_curves.py --check --runs-root "$DIR"
-    uv run --extra plots python scripts/plot_stulife_far_recall_curves.py --check --runs-root "$DIR"
-    uv run --extra plots python scripts/plot_appworld_curves.py --check --runs-root "$DIR"
-    uv run --extra plots python scripts/plot_combined_curves.py --check --runs-root "$DIR" \\
-        --appworld-runs-root "$DIR"
-    uv run --extra plots python scripts/plot_combined_cost.py --check --runs-root "$DIR" \\
-        --appworld-runs-root "$DIR"
-
-The two StuLife generators rebuild exactly and report `is up to date` for all five of their PDFs. The
-other three will report `Figure CONTENT differs`, and that is expected too, for the one reason this
-archive cannot fix.
-
-**The one arm that is not in here.** AppWorld's own ReAct baseline was run through AppWorld's harness
-rather than ours, so no trace for it exists in this archive. The AppWorld *table* reproduces anyway --
-that row falls back to constants recorded from the original run. The three *figures* that draw it
-(`appworld_curves_*`, `combined_curves`, `combined_cost`) instead omit the line when its artifacts are
-absent, so what they rebuild really is a different picture, and `--check` is right to say so. Pass
-`--official-root` at an AppWorld experiment output directory of your own to draw that line.
+{official}
 
 `scripts/README.md` in the repository lists every generator and the artifact it writes.
 """
@@ -270,6 +395,26 @@ def main() -> int:
         "live in different checkouts (default: the repo root)",
     )
     parser.add_argument("--passphrase", default=PASSPHRASE, help="override the published passphrase")
+    # Same flag names as the generators that read this arm, so there is one spelling across the
+    # suite for "where that batch lives".
+    parser.add_argument(
+        "--official-root",
+        type=Path,
+        default=OFFICIAL_ROOT,
+        help="AppWorld experiment-output root holding the official ReAct baseline's three reps",
+    )
+    parser.add_argument(
+        "--official-logs",
+        type=Path,
+        default=OFFICIAL_LOGS,
+        help="directory of that baseline's per-rep run logs, which carry its cost",
+    )
+    parser.add_argument(
+        "--no-official",
+        action="store_true",
+        help="build without the official baseline (the AppWorld table then falls back to "
+        "recorded constants for that row)",
+    )
     parser.add_argument(
         "--level", type=int, default=19, help="zstd level (default 19; traces compress to ~5%%)"
     )
@@ -288,7 +433,19 @@ def main() -> int:
         if not attempts:
             raise SystemExit("no runs matched under: " + ", ".join(str(r) for r in roots))
         arms = len(load_manifest(APPWORLD_MANIFEST)) + len(load_manifest(STULIFE_MANIFEST))
-        (staging / "README.md").write_text(readme(attempts, arms, args.passphrase, args.out.name))
+        official_reps = (
+            0
+            if args.no_official
+            else collect_official(staging, args.official_root, args.official_logs, OFFICIAL_STAMP)
+        )
+        # The official baseline is an arm of the paper but not of the manifests, so it is counted
+        # here rather than derived -- the manifests drive which `runs/` directories ship and this
+        # tree is not one of them.
+        (staging / "README.md").write_text(
+            readme(
+                attempts, arms + (1 if official_reps else 0), args.passphrase, args.out.name, official_reps
+            )
+        )
 
         args.out.parent.mkdir(parents=True, exist_ok=True)
         # Built beside the destination and moved into place only on success. Writing straight to
@@ -346,6 +503,7 @@ def main() -> int:
     checksums.write_text(f"{digest}  {args.out.name}\n")
     size = args.out.stat().st_size / 1_048_576
     print(f"wrote {display(args.out)} ({size:.0f} MB, {attempts} attempts)")
+    print(f"      official baseline reps: {official_reps}")
     print(f"      {display(checksums)}")
     print(f"      passphrase: {args.passphrase}")
     return 0
