@@ -19,6 +19,7 @@ import json
 import math
 import re
 import shlex
+import statistics
 import sys
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -251,3 +252,104 @@ def describe_pdf_difference(current: bytes, rebuilt: bytes) -> list[str]:
         f"  Figure CONTENT differs ({len(current)} bytes committed, {len(rebuilt)} rebuilt).",
         "  A PDF is not diffable line by line; rebuild and view it to see what moved.",
     ]
+
+
+# THE PER-TASK SEM RULE -- when a per-task baseline reports a paired SEM instead of the SEM over its
+# reps. Executive call (user, 2026-10-02), replacing a hand-typed +/-0.20 for one arm with one rule
+# for all of them.
+#
+# A per-task baseline runs every task independently, and every rep runs the same tasks, so its SEM
+# can be estimated two ways. Over reps: the SD of the per-rep totals over sqrt(n). Paired: each
+# task's SD across reps, over sqrt(n), combined in quadrature -- task difficulty is shared by every
+# rep and cancels. With three reps the first rests on three numbers and can come out implausibly
+# small; the official AppWorld baseline's three cost totals agree to $0.002, an over-reps SEM of
+# $0.00065 against a paired $0.197 -- which would draw the least replicated arm as the most precisely
+# measured one.
+#
+# The rule: report the paired SEM only when it exceeds the over-reps one by more than
+# PAIRED_SEM_THRESHOLD. Ten is not tuned to the data, it is the point where the over-reps SEM stops
+# being believable: at n=3 the sample SD has two degrees of freedom, so the chance it understates
+# the true SD by more than T-fold is 1 - exp(-1/T^2), about 1% at T=10. It also leaves both sides
+# with margin on these runs -- every reported paired/over-reps ratio is at most 2.56 except the
+# official baseline's cost (302, or unbounded against its two-decimal log totals), so the rule
+# reproduces every published number exactly.
+#
+# Known, and accepted with the call: StuLife's per-task CodeAct has paired SEMs 1.5-2.6x its
+# over-reps ones, and keeps the smaller over-reps figure -- the rule asks whether the over-reps SEM
+# is implausible, not which is larger. And it is for per-task baselines only: an arm that carries
+# state from task to task (self-improvement, a long-horizon episode) has no independent per-task
+# variance to pair, so it always reports the SEM over reps.
+PAIRED_SEM_THRESHOLD = 10.0
+
+
+def paired_sem(
+    per_unit: dict[str, list[float]], *, scale: float = 1.0, mean_over: int | None = None
+) -> float:
+    """SEM of a per-rep sum over units, estimated from each unit's spread across reps.
+
+    `per_unit` maps a unit (a task, or a scenario) to its value in each rep. Pass `mean_over` for a
+    per-rep MEAN over that many units -- a pass rate -- and `scale` for its units (100 for percent).
+    Units seen in fewer than two reps carry no spread and are skipped.
+    """
+    total = 0.0
+    for values in per_unit.values():
+        if len(values) > 1:
+            total += (statistics.stdev(values) / math.sqrt(len(values))) ** 2
+    sem = math.sqrt(total)
+    return scale * (sem / mean_over if mean_over else sem)
+
+
+def choose_sem(over_reps: float, paired: float | None) -> float:
+    """The SEM a per-task baseline reports: paired when the over-reps one is implausibly small.
+
+    See `PAIRED_SEM_THRESHOLD`. `paired` is None where the per-task values are not available, and
+    the over-reps SEM is reported unchanged.
+    """
+    if paired is None or math.isnan(over_reps):
+        return over_reps
+    return paired if paired > PAIRED_SEM_THRESHOLD * over_reps else over_reps
+
+
+def apply_paired_sem(
+    sems: dict[str, list[float]],
+    index: int,
+    short: str,
+    paired: dict[str, float],
+    names: dict[str, str],
+    source: str,
+) -> list[str]:
+    """Apply `choose_sem` to one arm's aggregate SEMs in place. Returns a line per cell it changed."""
+    changed: list[str] = []
+    for column, value in paired.items():
+        before = sems[column][index]
+        if math.isnan(before):
+            continue
+        after = choose_sem(before, value)
+        if after != before:
+            sems[column][index] = after
+            changed.append(
+                f"{short:<20} {names[column]:<10} paired {after:.3f} vs over reps {before:.3f} ({source})"
+            )
+    return changed
+
+
+def paired_sem_note(cells: tuple[str, ...], first: str, rest: str) -> str:
+    """Generated-header text for the per-task SEM rule: what it does, and where it fired this build.
+
+    `first` prefixes the opening line and `rest` every other, so one text reads as a bulleted caveat
+    in one table and a paragraph in another.
+    """
+    lines = [
+        "PER-TASK BASELINES MAY QUOTE A PAIRED SEM. For an arm that starts every task fresh, each",
+        "task's SD across reps, over sqrt(n) and combined in quadrature, is a second estimate of",
+        "the SEM. The aggregate table uses it in place of the SEM over reps when it is more than",
+        f"{PAIRED_SEM_THRESHOLD:g}x larger, i.e. when the SEM over reps is implausibly small, as",
+        "three near-identical totals make it. Arms that carry state between tasks always quote",
+        "the SEM over reps; so does the per-rep table, which prints the values it is computed from.",
+    ]
+    lines += (
+        ["It applies to:", *(f"  {cell}" for cell in cells)]
+        if cells
+        else ["It changed no cell of this build."]
+    )
+    return "\n".join(f"{first if i == 0 else rest}{line}" for i, line in enumerate(lines))

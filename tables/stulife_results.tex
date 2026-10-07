@@ -24,6 +24,14 @@
 % `*` marker in the aggregate table's "prompt-only?" column header references a note that lives in
 % the paper, not in this file.
 %
+% PER-TASK BASELINES MAY QUOTE A PAIRED SEM. For an arm that starts every task fresh, each
+% task's SD across reps, over sqrt(n) and combined in quadrature, is a second estimate of
+% the SEM. The aggregate table uses it in place of the SEM over reps when it is more than
+% 10x larger, i.e. when the SEM over reps is implausibly small, as
+% three near-identical totals make it. Arms that carry state between tasks always quote
+% the SEM over reps; so does the per-rep table, which prints the values it is computed from.
+% It changed no cell of this build.
+%
 % Sources, all globs relative to --runs-root, which for this build was:
 %   the repo root (the default)
 %   CodeAct (per task)             runs/stulife/jaz_per_task/20260829T193822Z-per-task-codeact-full-1284-x3/

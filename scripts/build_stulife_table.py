@@ -36,10 +36,13 @@ sys.path.append(str(Path(__file__).resolve().parent))
 from _artifacts import (
     REPO,
     aggregate_marks,
+    apply_paired_sem,
     d1,
     describe_text_difference,
     display,
     load_manifest,
+    paired_sem,
+    paired_sem_note,
     rerun_command,
     runs_root_line,
 )
@@ -64,6 +67,25 @@ COLUMN_HEADS = {
 }
 
 
+# The env's far-recall threshold (`envs/stulife.py:_FAR_RECALL_GAP`): a scored task is FAR recall when
+# what it tests was taught more than this many tasks earlier. Restated here rather than imported so the
+# generators run without constructing an env, and defined HERE once -- `plot_stulife_far_recall_curves`
+# imports it. The env's own recorded count checks it below, but softly: a split that disagrees drops
+# only the far columns' PAIRED SEMs. No mean moves, since those columns read `n_*_far_recall` from the
+# env rather than this split -- but a far +/- that quoted its paired SEM silently reverts to the SEM
+# over reps. What does fail loudly is the far-recall figure, which asserts its own row count.
+FAR_RECALL_GAP = 50
+
+# Plain column names for the generated header's prose.
+_COLUMN_NAMES = {
+    "pass": "Pass %",
+    "score": "Score",
+    "far_pass": "Far pass %",
+    "far_score": "Far score",
+    "cost": "Cost $",
+}
+
+
 class Arm(NamedTuple):
     """One method's runs. `key` indexes the run manifest."""
 
@@ -71,6 +93,9 @@ class Arm(NamedTuple):
     short: str  # plain-text name for the generated provenance block (LaTeX has no place there)
     key: str
     prompt_only: str  # LaTeX for the aggregate table's prompt-only column
+    # Starts every task fresh, so its per-task outcomes can be paired across reps. Only the arm tagged
+    # `(per task)`: every other arm runs the whole queue as one episode, carrying state between tasks.
+    per_task: bool = False
 
 
 ARMS = (
@@ -79,6 +104,7 @@ ARMS = (
         "CodeAct (per task)",
         "codeact_per_task",
         r"\checkmark",
+        per_task=True,
     ),
     Arm(
         r"CodeAct+subagents\textsubscript{\citep{roucher2025smolagents}}",
@@ -183,6 +209,78 @@ def collect(
                 prov.append(_provenance(run, attempt))
                 counts.append(_counts(attempt))
     return data, prov, counts
+
+
+def per_task_values(
+    arm: Arm, manifest: dict[str, list[str]], runs_root: Path
+) -> dict[str, dict[str, list[float]]]:
+    """A per-task baseline's values per task, one per rep, for the paired SEM.
+
+    Keyed by column. A column is absent when its records are: `cost` without per-task trajectories,
+    the far-recall pair when this split disagrees with the env's own count. Empty for an arm that is
+    not a per-task baseline.
+    """
+    if not arm.per_task:
+        return {}
+    columns: dict[str, dict[str, list[float]]] = {c: {} for c in COLUMNS}
+    far_agrees = True
+    reps = 0
+    for pattern in manifest.get(arm.key, []):
+        for run in sorted(runs_root.glob(pattern)):
+            for attempt in sorted(
+                (a for a in run.glob("attempt-*") if (a / "results.json").is_file()),
+                key=lambda a: int(a.name.rsplit("-", 1)[-1]),
+            ):
+                reps += 1
+                rows = [
+                    json.loads(line)
+                    for line in (attempt / "task_results.jsonl").read_text().splitlines()
+                    if line
+                ]
+                far_rows = 0
+                for row in rows:
+                    # Triggers are unscored, and so are excluded from every rate -- as `pass_rate` is.
+                    if row.get("is_trigger") or row.get("score") is None:
+                        continue
+                    task = str(row["task_id"])
+                    passed, score = (1.0 if row["success"] else 0.0), float(row["score"])
+                    columns["pass"].setdefault(task, []).append(passed)
+                    columns["score"].setdefault(task, []).append(score)
+                    if (row.get("gap") or 0) > FAR_RECALL_GAP:
+                        far_rows += 1
+                        columns["far_pass"].setdefault(task, []).append(passed)
+                        columns["far_score"].setdefault(task, []).append(score)
+                far_agrees &= far_rows == _counts(attempt).far
+                # One trajectory per task, in queue order beside `task_results.jsonl`; the per-task
+                # harness records each task's cost on its own trajectory and nowhere else. Matched by
+                # position, and only when the counts agree, so a short trace pairs nothing.
+                trace = attempt / "agent.atif.json"
+                trajectories = json.loads(trace.read_text()) if trace.is_file() else None
+                if isinstance(trajectories, list) and len(trajectories) == len(rows):
+                    for row, trajectory in zip(rows, trajectories, strict=True):
+                        spent = (trajectory.get("final_metrics") or {}).get("total_cost_usd")
+                        if isinstance(spent, (int, float)):
+                            columns["cost"].setdefault(str(row["task_id"]), []).append(float(spent))
+    if not far_agrees:
+        # This split no longer matches the env's own definition of far recall, so pairing on it would
+        # report an uncertainty for a different set of tasks than the column it sits under.
+        columns.pop("far_pass"), columns.pop("far_score")
+    # Pairing needs every unit in every rep, or a unit enters the sum with a spread from fewer reps.
+    # Counted against the reps read, not merely equal across units: a rep that paired no cost at all
+    # leaves every task one short by the same amount.
+    return {c: v for c, v in columns.items() if v and all(len(x) == reps for x in v.values())}
+
+
+def per_task_sems(values: dict[str, dict[str, list[float]]]) -> dict[str, float]:
+    """The paired SEM of each column `values` covers, in that column's own units."""
+    sems: dict[str, float] = {}
+    for column, per_task in values.items():
+        if column == "cost":
+            sems[column] = paired_sem(per_task)
+        else:
+            # Rates and mean scores are reported as percentages of the scored tasks they average over.
+            sems[column] = paired_sem(per_task, scale=100, mean_over=len(per_task))
+    return sems
 
 
 def _cell(value: float, sem: float, mark: str | None) -> str:
@@ -296,6 +394,7 @@ def _header(
     manifest: dict[str, list[str]],
     runs_root: Path,
     counts: Counts,
+    paired_cells: tuple[str, ...] = (),
 ) -> str:
     return f"""% StuLife (full episode, {counts.tasks} tasks of which {counts.scored} are scored) results.
 %
@@ -322,6 +421,8 @@ def _header(
 % arms including baselines; per-rep rows carry neither (a single rep is not a "best" result). The
 % `*` marker in the aggregate table's "prompt-only?" column header references a note that lives in
 % the paper, not in this file.
+%
+{paired_sem_note(paired_cells, "% ", "% ")}
 %
 % Sources, all globs relative to --runs-root, which for this build was:
 %   {runs_root_line(runs_root)}
@@ -389,9 +490,17 @@ def build(manifest: dict[str, list[str]], runs_root: Path, manifest_path: Path) 
     sems = {
         c: [st.stdev(d[c]) / math.sqrt(len(d[c])) if len(d[c]) > 1 else 0.0 for d in per_arm] for c in COLUMNS
     }
+    # The per-task SEM rule (`_artifacts.PAIRED_SEM_THRESHOLD`), on the aggregate table only; the
+    # per-rep table keeps the SEM over the rep values it prints.
+    paired_cells: list[str] = []
+    for i, arm in enumerate(ARMS):
+        paired = per_task_sems(per_task_values(arm, manifest, runs_root))
+        paired_cells += apply_paired_sem(
+            sems, i, arm.short, paired, _COLUMN_NAMES, "computed from per-task records"
+        )
     return "\n".join(
         [
-            _header(prov_by_arm, manifest, runs_root, counts),
+            _header(prov_by_arm, manifest, runs_root, counts, tuple(paired_cells)),
             "",
             "% " + "-" * 73,
             "% Aggregate: mean +/- SEM over reps.",

@@ -125,16 +125,15 @@
 %   - The JAZ arms' delivered subagent prompt text is byte-identical across their six reps.
 %
 % OTHER CAVEATS
-%   - THE TWO TABLES REPORT DIFFERENT UNCERTAINTIES FOR THE OFFICIAL BASELINE'S COST, on purpose. Its
-%     cost is $16.59 in all three reps (true totals $16.588626 / $16.589859 / $16.590883), so the SEM
-%     over reps is $0.0 as computed here, from two-decimal log values ($0.0007 from the six-decimal
-%     recorded fallback). The aggregate table prints +/-0.2 instead -- the paired per-task SEMs
-%     combined in quadrature (sqrt(sum SEM_i^2) = $0.197) --
-%     because three near-identical totals from the one batch of that arm that completed are a
-%     cancellation whose replication is untestable, and +/-0.0 draws the least replicated arm as the
-%     most precisely measured one. The per-rep table keeps +/-0.0: it prints the three totals that SEM
-%     was computed from, and the paper's caption for that table explains the difference. Every other
-%     table and figure quoting this arm's cost uses +/-0.20 (see `OFFICIAL_COST_SEM`).
+%   - PER-TASK BASELINES MAY QUOTE A PAIRED SEM. For an arm that starts every task fresh, each
+%     task's SD across reps, over sqrt(n) and combined in quadrature, is a second estimate of
+%     the SEM. The aggregate table uses it in place of the SEM over reps when it is more than
+%     10x larger, i.e. when the SEM over reps is implausibly small, as
+%     three near-identical totals make it. Arms that carry state between tasks always quote
+%     the SEM over reps; so does the per-rep table, which prints the values it is computed from.
+%     It applies to:
+%       official baseline    Cost $     paired 0.197 vs over reps 0.000 (computed from per-task records)
+%       official baseline    Solver $   paired 0.197 vs over reps 0.000 (computed from per-task records)
 %   - Not every run is error-free, though every one graded all 417 tasks: CodeAct reps 1 and 2 recorded
 %     IterationLimitExhaustedError (x1 and x2), and CodeAct rep 2 and ACE rep 4 each recorded
 %     submit_errors: 1. grader_errors is 0 in all 21 runs, so the measurements stand.
@@ -156,8 +155,8 @@
 
 
 % -------------------------------------------------------------------------
-% Aggregate: mean +/- SEM over reps, except the official baseline's two money
-% columns -- see OTHER CAVEATS above for why that one row quotes +/-0.20 instead.
+% Aggregate: mean +/- SEM over reps, except the cells OTHER CAVEATS lists, which quote a paired
+% per-task SEM because their SEM over reps is implausibly small.
 % -------------------------------------------------------------------------
 \begin{tabular}{rcccccc}
 \toprule

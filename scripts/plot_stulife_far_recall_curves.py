@@ -70,7 +70,7 @@ from _curves import (
     piece_bounds,
     set_theme,
 )
-from build_stulife_table import DEFAULT_MANIFEST
+from build_stulife_table import DEFAULT_MANIFEST, FAR_RECALL_GAP
 
 # PDF only, and vector: see the same note in plot_appworld_curves.py. This figure is committed because
 # the runs it reads are not in any clone.
@@ -82,9 +82,6 @@ OUT = REPO / "tables" / "stulife_far_recall_curves.pdf"
 # checkout, is usable only on the machine that wrote it.
 
 N_PIECES = 5
-# The env's own threshold (`envs/stulife.py:_FAR_RECALL_GAP`). Duplicated rather than imported so this
-# script runs without constructing an env; the assertion in `main` pins them together.
-FAR_RECALL_GAP = 50
 EXPECTED_FAR = 207
 
 # (label, manifest key, colour, linestyle). Colours match the AppWorld figure arm-for-arm where an
