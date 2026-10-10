@@ -305,10 +305,9 @@ read the traces, unpack everything by leaving those three flags off. Do not wide
 all of `tasks/*`: each task's `misc/usage.json` beside those transcripts is that arm's per-task
 cost, which the AppWorld table's cost error bar is computed from.
 
-Either way, decrypt through the pipe as above (needs `openssl`, `zstd` and `tar`). The archive's own
-README gives a three-step route instead (decrypt to a file, then `zstd -d`, then `tar xf`), which
-briefly holds the compressed tar, the plain tar and the unpacked tree together, over 30 GB at peak
-for the full archive.
+Either way, decrypt through the pipe as above (needs `openssl`, `zstd` and `tar`), rather than to a
+file first: staging the compressed and plain tars beside the unpacked tree needs over 30 GB for the
+full archive.
 
 The passphrase is published on purpose. The encryption exists to keep AppWorld's ground-truth tests
 out of training corpora, as AppWorld's authors asked, so **please do not republish the decrypted
