@@ -16,6 +16,11 @@ runs/
 # entry per working DB.
 /experiments/
 *.log
+# The published trace archive and its decrypted tree (see README, "Reproducing the published numbers
+# from the traces"). The tree holds AppWorld's ground-truth tests in plaintext, which its authors asked
+# us not to republish, so a stray `git add -A` must not be able to pick it up.
+/traces.tar.zst.enc
+/traces/
 
 # Secrets. These hold real OpenAI keys and are read at launch (scripts/run_appworld_official_react.sh
 # treats .env as authoritative), so they must never be committable -- the pattern covers variants like

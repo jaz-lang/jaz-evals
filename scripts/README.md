@@ -26,7 +26,9 @@ the figures cannot drift apart; `_artifacts.py` owns the data and verification h
 scripts take `--runs-root` **and** `--appworld-runs-root`, because the two domains' runs may live in
 different checkouts.
 
-The committed artifacts in `tables/` are the ones in the paper. Each domain has one manifest —
+The committed tables in `tables/` are the paper's, number for number, and `combined_cost.pdf` is its
+one data figure (the top-level README's *Mapping to the paper* says where each one appears; the other
+ten PDFs are supplementary). Each domain has one manifest —
 **`scripts/appworld_runs.json`** / **`scripts/stulife_runs.json`** — mapping each arm to its
 run-directory globs, and every script for that domain reads it -- four readers for AppWorld (table,
 curves, and the two combined figures) and five for StuLife (table, curves, far-recall, and the same
@@ -44,16 +46,15 @@ because the two domains' runs need not live in the same tree.
 
 The arms in the two manifests are exactly the arms this repo ships configs for: four AppWorld
 (`configs/appworld_*.yaml`) and five StuLife (`configs/stulife_*.yaml`). AppWorld's own baseline is
-the tenth arm and is deliberately absent from the manifest — its artifacts are not under `runs/` at
-all, so the generators reach it through `--official-root` instead. See *The one row you cannot
-recompute* below.
+the tenth arm and is deliberately absent from the manifest — it was not run through this harness, so
+it is not a run directory. See *The official baseline row* below.
 
 A **rep** means different things in the two domains, which is why the manifests look different. The
 AppWorld arms are several run directories of one attempt each (`…-rep-*`); the StuLife arms are one
 run directory launched with `--attempts 3`. Both readers take every attempt of every matched run, so
 either shape works.
 
-The two tables need nothing but a Python interpreter. The five figure generators need matplotlib
+The two tables need nothing but Python 3.10 or newer. The five figure generators need matplotlib
 and seaborn, which are the optional `plots` extra — `uv run --extra plots` is what puts them on the
 path:
 
@@ -75,30 +76,41 @@ committed ones and you lose the comparison you were trying to make.
 `scripts/_artifacts.py` holds what they share — the manifest loader, the `--check` reporting, the
 best/second-best marking, and the half-up rounding both tables use.
 
-### The one row you cannot recompute
+### The official baseline row
 
-The AppWorld table's `official baseline` row comes from AppWorld's **own** evaluation JSON, written
-by `run_appworld_official_react.sh` under AppWorld's data root — an absolute, machine-specific path,
-not `runs/`. When those artifacts are absent the generator falls back to constants recorded from our
-run, and **says so in the generated header**:
+The AppWorld table's `official baseline` row comes from AppWorld's **own** evaluation JSON and run
+logs, written by `run_appworld_official_react.sh` in AppWorld's layout rather than as a run
+directory. The table and the three AppWorld figures look for them in the same places, in order:
+
+1. `runs/appworld/official_react/` under `--runs-root`, which is where the published trace archive
+   puts that batch. Unpack the archive and point `--runs-root` at it, and the row is recomputed with
+   no extra flag.
+2. The absolute paths it was produced at, on the machine that ran it.
+
+To use your own run of that script instead, pass **both** flags: `--official-root` at its experiment
+outputs (which carry the per-task scores), and `--official-logs` at the per-rep run logs (which carry
+the cost). The script writes those logs apart from the outputs, to the directory it prints as it starts
+(`<appworld checkout>/logs_official_react_<stamp>/`), so the default -- `logs/` inside
+`--official-root` -- only fits the published archive's layout. Leave `--official-logs` off and that
+row pairs your scores with our recorded cost, which the generated header says. Either flag wins over
+both places above. The run-stamp in its directory names is discovered, so your reps need not
+carry ours. The table, `plot_appworld_curves.py`, `plot_combined_curves.py` and
+`plot_combined_cost.py` all resolve these the same way (`official_paths` in
+`build_appworld_table.py`), so no figure can draw that arm from a different tree than the table
+reports it from.
+
+When none of those artifacts are found, the table falls back to constants recorded from our run, and
+**says so in the generated header**:
 
 ```
 %   - The official-baseline row was NOT recomputed on this machine (its artifacts live
 %     outside the repo and were absent); recorded constants in the generator were used.
 ```
 
-So on a fresh machine that row is ours, not yours, until you run that script and point the
-generators at its output. The flags are `--official-root` (the experiment outputs, which carry the
-per-task scores) and `--official-logs` (the per-rep run logs, which carry the cost) -- the table needs
-both, since supplying only the first still falls back for cost. `plot_appworld_curves.py`,
-`plot_combined_curves.py` and `plot_combined_cost.py` take `--official-root`; `plot_combined_cost.py`
-takes `--official-logs` too, being the only figure that plots that arm's cost.
-
-Those three figures need per-task outcomes, which the recorded constants do not carry, so without
-`--official-root` they drop the official line entirely (with a note on stderr) rather than drawing a
-line they cannot support -- which means `--check` reports `Figure CONTENT differs` for them, correctly.
-The table is unaffected: it falls back to the constants and rebuilds identically. Every other row and
-line comes from your runs either way.
+The three figures need per-task outcomes, which the recorded constants do not carry, so without the
+artifacts they drop the official line entirely (with a note on stderr) rather than drawing a line
+they cannot support -- which means `--check` reports `Figure CONTENT differs` for them, correctly.
+Every other row and line comes from the runs either way.
 
 ### `--check`
 
@@ -133,9 +145,11 @@ It reads run directories, so it only means something where the runs are. It is n
 ## Publish the artifacts
 
 One artifact: **`release_traces.py`** packs every trace file of every reported arm into a single
-encrypted archive. Nothing is filtered and nothing is rewritten — the files are bit-identical to what
-the runs recorded, so the same download both reproduces the committed tables and figures and shows
-what the agents actually did.
+encrypted archive, the official AppWorld baseline included (under `runs/appworld/official_react/`, in
+AppWorld's own layout). Nothing is rewritten — the files are bit-identical to what the runs recorded,
+so the same download both reproduces the committed tables and figures and shows what the agents
+actually did. The one thing filtered out is the official baseline's per-task `dbs/` and
+`checkpoints/`: AppWorld's simulator state, about 3.5 GB, which no reported number reads.
 
 **Why encrypted, given that only one of the two benchmarks requires it** — both upstreams were asked
 directly, and they answered differently:

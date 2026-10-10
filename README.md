@@ -30,7 +30,9 @@ below is one environment paired with one method.
 Each row is one config. The scores themselves are in [`tables/`](tables/) — `appworld_results.tex`
 and `stulife_results.tex` alongside the figures — and every number in them is the mean over
 independent attempts, three or six as noted below, with standard error. Both are generated files:
-[`scripts/README.md`](scripts/README.md) is how to rebuild them, from these runs or from your own.
+[`scripts/README.md`](scripts/README.md) is how to rebuild them, from these runs or from your own. The
+raw traces of these runs are published too; see
+[*Reproducing the published numbers from the traces*](#reproducing-the-published-numbers-from-the-traces).
 
 **How the attempts were run differs by benchmark.** Every StuLife arm is a single run of three
 attempts in one process (`--attempts 3`) — which is why a StuLife run directory holds `attempt-0`
@@ -267,3 +269,142 @@ Each generator takes `--check`, which rebuilds its artifact and reports whether 
 still matches; for the two `.tex` tables it also separates a difference confined to the provenance
 header from a difference in the numbers, so "built somewhere else" does not read as "the results
 moved". Point one at your own runs with `--runs-root`; `scripts/README.md` has the commands.
+To rebuild them from the published traces instead of your own runs, see
+[*Reproducing the published numbers from the traces*](#reproducing-the-published-numbers-from-the-traces).
+
+## Reproducing the published numbers from the traces
+
+You do not have to re-run anything to check the published numbers. The raw traces of all ten arms
+are published as one encrypted archive, `traces.tar.zst.enc`, on Zenodo:
+[doi:10.5281/zenodo.22696174](https://doi.org/10.5281/zenodo.22696174). Every
+table and figure in [`tables/`](tables/) is computed from those traces by the generators in
+[`scripts/`](scripts/), so downloading the archive and running the generators rebuilds them.
+
+**Run every command in this section from the repo root**, with the downloaded archive saved there.
+Both the archive and the `traces/` directory it unpacks to are gitignored.
+
+### Decrypting
+
+The archive is about 590 MB and unpacks to about 15.8 GB. **Most of that is not needed for the
+numbers.** If you have less than about 16 GB free, or only want to check the numbers, unpack just
+what the generators read, about 4.1 GB:
+
+```bash
+mkdir -p traces
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -salt \
+    -in traces.tar.zst.enc -pass pass:jaz-evals-traces \
+  | zstd -dc \
+  | tar xf - -C traces \
+      --exclude='*/agent.trace/*' --exclude='agent.log' \
+      --exclude='./runs/appworld/official_react/*/tasks/*/logs/*'
+```
+
+What the three `--exclude` flags drop is the record of what the agents did: the human-readable
+trace renders, the flat agent logs, and the official AppWorld baseline's per-task transcripts. To
+read the traces, unpack everything by leaving those three flags off. Do not widen the last one to
+all of `tasks/*`: each task's `misc/usage.json` beside those transcripts is that arm's per-task
+cost, which the AppWorld table's cost error bar is computed from.
+
+Either way, decrypt through the pipe as above (needs `openssl`, `zstd` and `tar`). The archive's own
+README gives a three-step route instead (decrypt to a file, then `zstd -d`, then `tar xf`), which
+briefly holds the compressed tar, the plain tar and the unpacked tree together, over 30 GB at peak
+for the full archive.
+
+The passphrase is published on purpose. The encryption exists to keep AppWorld's ground-truth tests
+out of training corpora, as AppWorld's authors asked, so **please do not republish the decrypted
+contents in plaintext**. The unpacked tree also holds its own `README.md` with both benchmarks'
+citations.
+
+The commands below use one variable:
+
+```bash
+DIR="$PWD/traces"
+```
+
+If you unpacked somewhere other than `traces/` in the repo root (to put it on another disk, say),
+set `DIR` to the **absolute** path of the unpacked tree, the directory that contains `runs/`, and
+still run the commands from the repo root.
+
+AppWorld's own baseline was run through AppWorld's harness rather than this one, so it is stored in
+AppWorld's layout, under `runs/appworld/official_react/`, rather than as a run directory like the
+other nine arms. Every generator finds it there under `--runs-root` on its own.
+
+### Expected `--check` output, and one hint to ignore
+
+Every command below passes `--check`, which rebuilds an artifact in memory, compares it with the
+committed one in `tables/`, writes nothing, and exits 1 if they differ.
+
+**When a check reports a difference, it ends with a `Rebuild with: uv run python scripts/...` line.
+Do not run it.** It overwrites the committed artifact in `tables/`, which is what you are comparing
+against. It also fails unless the submodules are checked out (see [Figures](#figures)).
+
+### Tables
+
+The two tables need only Python 3.10 or newer, with no packages. (macOS's built-in
+`/usr/bin/python3` is 3.9, which is too old; `uv run --no-project --python 3.12 python` works in its
+place.)
+
+```bash
+python3 scripts/build_stulife_table.py  --check --runs-root "$DIR"
+python3 scripts/build_appworld_table.py --check --runs-root "$DIR"
+```
+
+**Both commands exit 1, and that is expected.** Each reports `Numbers are IDENTICAL. Only the
+provenance header differs`, followed by a diff of one line: the `--runs-root` the table was built
+from, which is your path rather than ours. Every number in both tables, including the AppWorld
+official baseline's row, is recomputed from the traces.
+
+**The AppWorld diff should be that one `--runs-root` line and nothing else.** If the generator did
+not find `runs/appworld/official_react/`, it falls back to constants recorded from our run, which equal the published
+numbers, so the check *still* says `Numbers are IDENTICAL`. The only sign is a longer diff: it adds
+the line `The official-baseline row was NOT recomputed on this machine`, and the official baseline's
+cost lines change from `computed from per-task records` to `recorded`. If you see those, check that
+`DIR` is the directory containing `runs/`.
+
+### Figures
+
+The five figure generators also need matplotlib and seaborn, the `plots` extra. `uv run --extra
+plots` resolves the whole lockfile, which needs the `third_party/` submodules checked out (see
+[Setup](#setup)); without them every figure command fails with `third_party/appworld does not
+appear to be a Python project`. To skip the submodules, run the generators in an isolated
+environment pinned to the versions in `uv.lock`. **This needs [uv](https://docs.astral.sh/uv/) and,
+on first use, network access**: it downloads Python 3.12 and the five packages into uv's cache.
+
+```bash
+plots() {
+  uv run --no-project --python 3.12 --with matplotlib==3.11.1 --with seaborn==0.13.2 \
+      --with pandas==3.0.6 --with numpy==2.5.2 --with pyyaml==6.0.3 python "$@"
+}
+plots scripts/plot_stulife_curves.py            --check --runs-root "$DIR"
+plots scripts/plot_stulife_far_recall_curves.py --check --runs-root "$DIR"
+plots scripts/plot_appworld_curves.py           --check --runs-root "$DIR"
+plots scripts/plot_combined_curves.py --check --runs-root "$DIR" --appworld-runs-root "$DIR"
+plots scripts/plot_combined_cost.py   --check --runs-root "$DIR" --appworld-runs-root "$DIR"
+```
+
+All eleven PDFs should report `is up to date`, meaning byte-identical to the committed ones, and
+every command should exit 0. The matplotlib pin is load-bearing: PDF bytes change between
+matplotlib patch releases, so a different version makes `--check` report every figure stale.
+`findfont: Failed to find font weight ...` warnings on stderr are harmless and do not affect the
+output.
+
+If the official baseline is not found under `--runs-root`, the three AppWorld figures
+(`appworld_curves_*`, `combined_curves`, `combined_cost`) leave its line out, print a note on stderr
+saying so, and report `Figure CONTENT differs`.
+
+### Mapping to the paper
+
+Numbering is the same in both arXiv versions (v1 and v2):
+
+| file in `tables/` | in the paper |
+| --- | --- |
+| `stulife_results.tex`, first table | Table 1, StuLife results |
+| `appworld_results.tex`, first table | Table 2, AppWorld results |
+| `stulife_results.tex`, second table | Table 3 (appendix), StuLife per-run results |
+| `appworld_results.tex`, second table | Table 4 (appendix), AppWorld per-run results |
+| `combined_cost.pdf` | the uncaptioned figure at the top of page 1 |
+
+The tables match the paper number for number. `combined_cost.pdf` differs from the paper's copy in
+one value: the official AppWorld baseline's cost error bar is 0.197 here, computed from that arm's
+per-task records, where the paper's figure drew a hand-entered 0.200. The other ten PDFs (the curve
+and far-recall figures) are supplementary and do not appear in the paper.
